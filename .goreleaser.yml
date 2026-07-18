@@ -1,0 +1,55 @@
+# GoReleaser configuration for Tally.
+# Docs: https://goreleaser.com
+version: 2
+
+project_name: tally
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: tally
+    main: .
+    binary: tally
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.buildVersion={{.Version}}
+
+archives:
+  - id: tally
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Homebrew tap. Point this at your tap repo before the first `brew install`.
+brews:
+  - name: tally
+    repository:
+      owner: blakep-lms
+      name: homebrew-tap
+    homepage: "https://github.com/blakep-lms/tally"
+    description: "Automatic, local-first time tracking for multi-project builders and their agents."
+    license: "MIT"
+    install: |
+      bin.install "tally"
+    test: |
+      system "#{bin}/tally", "--version"
