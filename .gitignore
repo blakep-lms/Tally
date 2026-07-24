@@ -1,0 +1,16 @@
+# Binaries
+/tally
+/dist/
+*.exe
+
+# Local data / scratch
+*.db
+*.db-wal
+*.db-shm
+.tally/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

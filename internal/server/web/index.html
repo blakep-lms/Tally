@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tally</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%B1%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="mark">⏱</span> Tally</div>
+    <nav>
+      <button class="nav-item active" data-view="overview">Overview</button>
+      <button class="nav-item" data-view="triage">Triage <span class="badge" id="triage-badge" hidden>0</span></button>
+      <button class="nav-item" data-view="reports">Reports</button>
+      <button class="nav-item" data-view="rules">Rules</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div id="provider-status" class="status-dot">checking…</div>
+      <button id="btn-sync" class="ghost">Sync</button>
+      <button id="btn-classify" class="ghost">Classify</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div id="toast" class="toast" hidden></div>
+
+    <!-- Overview -->
+    <section id="view-overview" class="view">
+      <header class="view-head">
+        <h1>Overview</h1>
+        <div class="range-tabs" data-target="overview">
+          <button data-range="today">Today</button>
+          <button data-range="week" class="active">This week</button>
+          <button data-range="all">All time</button>
+        </div>
+      </header>
+      <div class="stat-row" id="stat-row"></div>
+      <div class="cards" id="project-cards"></div>
+    </section>
+
+    <!-- Triage -->
+    <section id="view-triage" class="view" hidden>
+      <header class="view-head">
+        <h1>Triage</h1>
+        <p class="sub">Assign unclassified time. Tick “make a rule” so it never comes back.</p>
+      </header>
+      <div id="triage-list" class="triage-list"></div>
+    </section>
+
+    <!-- Reports -->
+    <section id="view-reports" class="view" hidden>
+      <header class="view-head">
+        <h1>Reports</h1>
+        <div class="range-tabs" data-target="reports">
+          <button data-range="today">Today</button>
+          <button data-range="week" class="active">This week</button>
+          <button data-range="all">All time</button>
+        </div>
+      </header>
+      <div class="report-actions">
+        <button id="copy-md" class="ghost">Copy Markdown</button>
+        <button id="copy-csv" class="ghost">Copy CSV</button>
+      </div>
+      <div id="report-table"></div>
+    </section>
+
+    <!-- Rules -->
+    <section id="view-rules" class="view" hidden>
+      <header class="view-head"><h1>Rules</h1></header>
+      <form id="rule-form" class="rule-form">
+        <select id="rule-project" required></select>
+        <select id="rule-field">
+          <option value="title">title</option>
+          <option value="app">app</option>
+          <option value="url">url</option>
+          <option value="repo">repo</option>
+        </select>
+        <select id="rule-match">
+          <option value="contains">contains</option>
+          <option value="equals">equals</option>
+          <option value="regex">regex</option>
+        </select>
+        <input id="rule-pattern" placeholder="pattern" required />
+        <button type="submit">Add rule</button>
+      </form>
+      <div id="rules-list" class="rules-list"></div>
+    </section>
+  </main>
+
+  <!-- Add project dialog -->
+  <dialog id="project-dialog">
+    <form method="dialog" id="project-form">
+      <h2>New project</h2>
+      <label>Name<input id="p-name" required /></label>
+      <label>Type
+        <select id="p-type">
+          <option value="billable">billable</option>
+          <option value="internal">internal</option>
+        </select>
+      </label>
+      <label>Client (optional)<input id="p-client" /></label>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Cancel</button>
+        <button value="ok" id="p-submit">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
