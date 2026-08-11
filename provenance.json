@@ -1,0 +1,116 @@
+{
+  "schema": "lms-derived-code-map-v1",
+  "type": "derived-code-map",
+  "authority": "derived-noncanonical",
+  "canonical": false,
+  "xtrace_ingest": "deny",
+  "project": "tally",
+  "canonical_vault_owner": "silas/products/tally",
+  "repository": "blakep-lms/Tally",
+  "source_ref": "main",
+  "source_commit": "de61c427a73a66edab4f3125e1c28cb3b578b571",
+  "openwiki_version": "0.3.1",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash-lite",
+  "generated_at": "2026-08-11T02:44:26.884105+00:00",
+  "wiki_files": 23,
+  "mermaid_blocks": 8,
+  "manifest": [
+    {
+      "path": "wiki/.last-update.json",
+      "sha256": "5c7fe8d25b5ec41964edadda20ab33bf5682339d283ee9c853e23ef1f7eed668"
+    },
+    {
+      "path": "wiki/INSTRUCTIONS.md",
+      "sha256": "67b07ba7390ac5aaa61a5247dbc25ceddc619b5a222c8c342787f5ae8a67499c"
+    },
+    {
+      "path": "wiki/_skeleton.md",
+      "sha256": "360ef913bb8411910d126b20cd6afd9fc19a8b8925d477c44bc37704edd4f887"
+    },
+    {
+      "path": "wiki/architecture/database.md",
+      "sha256": "f4540e82e6f4dc435ce45c4578c9f5bd8274ae1343b4883051e8e0119d010a4b"
+    },
+    {
+      "path": "wiki/architecture/index.md",
+      "sha256": "08fb50e8c9d05c47e4f1aa075597980d8c143c4ffdf3526c30b70808177bfcb2"
+    },
+    {
+      "path": "wiki/architecture/overview.md",
+      "sha256": "00e7f18f6d2f7cbc8bbc8687f853438fd341cb1ac114f44da3baf7825badba66"
+    },
+    {
+      "path": "wiki/capture/activitywatch.md",
+      "sha256": "a45b0b129c4b826192f83715c73f1837e204094877dca6f00121340d8e099f17"
+    },
+    {
+      "path": "wiki/capture/index.md",
+      "sha256": "2e7f2ab5769f8f8eaf1edacaf794cdd78705483da20ab405e8e09c052c6603a4"
+    },
+    {
+      "path": "wiki/classification/engine.md",
+      "sha256": "068f965b4c058f9c2cba29e9d932b2d1512452a5b8f88ace2bee75cfca794c75"
+    },
+    {
+      "path": "wiki/classification/index.md",
+      "sha256": "98f000fe77342149d01e919ee82b288e93d157219dbabfbe6901bf526569960c"
+    },
+    {
+      "path": "wiki/cli/index.md",
+      "sha256": "69a2f9386b120d268b969901d8ca2d2696df4b4af448c3ebf459644619658b56"
+    },
+    {
+      "path": "wiki/cli/overview.md",
+      "sha256": "c4cd0f13d54664ec82b2830f78a5b3864e5a2d22b533e1a094a64842f309b7c5"
+    },
+    {
+      "path": "wiki/core/index.md",
+      "sha256": "da72149824a3d3dbe939023262603aeacf09ef67fc93a7cac56d4c367145a92a"
+    },
+    {
+      "path": "wiki/core/workflow.md",
+      "sha256": "f9aba032d7b6c0e7db7dde6b94e098e881670618e7fc9e16f450c7511837aa20"
+    },
+    {
+      "path": "wiki/index.md",
+      "sha256": "f6a31bd9efba48338995ce2bf7c1141de6af16fac6d92231ff4f5d15fccfe472"
+    },
+    {
+      "path": "wiki/mcp/index.md",
+      "sha256": "02dfcbebcc70dded29a6eff48c4f7212e1df7857eaef4ccf4132754f7a0c7b99"
+    },
+    {
+      "path": "wiki/mcp/server.md",
+      "sha256": "f23b8c5654ef1b9138bd641aee6811d4efeaa16d187598c0d7e80e2984e22284"
+    },
+    {
+      "path": "wiki/quickstart.md",
+      "sha256": "bbbf91fff429d7fd31b48d0017283260f2e35e91348c14f02f7aad6d518b1645"
+    },
+    {
+      "path": "wiki/reports/generator.md",
+      "sha256": "1fdf3386799629551c07550b9b3904576598e8d1fbb242e61b575ed07a7743c9"
+    },
+    {
+      "path": "wiki/reports/index.md",
+      "sha256": "b668db91aae28359f9d1b26530bc0a5f60e13b424b7d7a7cb412b6ba0ce65be8"
+    },
+    {
+      "path": "wiki/server/dashboard.md",
+      "sha256": "3ce6fd1e601218155dd1f2e0f51e50f4c3754c6347954a48d9176c1507ed0e13"
+    },
+    {
+      "path": "wiki/server/index.md",
+      "sha256": "5af85f644a84f72a77155eeeae7307354d481040f440288100a075d44ff332c1"
+    },
+    {
+      "path": "wiki/testing/index.md",
+      "sha256": "bb67d5c2d36068be3203d4dd58bc8f323d18ccdfe6f07e2c5c996152dfeba8af"
+    },
+    {
+      "path": "wiki/testing/suite.md",
+      "sha256": "66a6fc47c608712d17f50aa0140eeb2566b62e61aee01fffde56e160f81c61d2"
+    }
+  ]
+}
