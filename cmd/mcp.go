@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"os"
-
 	"github.com/blakep-lms/tally/internal/mcp"
 	"github.com/spf13/cobra"
 )
@@ -20,7 +18,7 @@ func mcpCmd() *cobra.Command {
 				return err
 			}
 			defer closeFn()
-			return mcp.New(app).Serve(cmd.Context(), os.Stdin, os.Stdout)
+			return mcp.New(app).Serve(cmd.Context())
 		},
 	}
 }

@@ -28,13 +28,20 @@ func (s *Store) CreateRule(r model.Rule) (model.Rule, error) {
 	if r.Priority == 0 {
 		r.Priority = 100
 	}
-	if _, err := s.GetProject(r.ProjectID); err != nil {
-		return model.Rule{}, fmt.Errorf("project %d: %w", r.ProjectID, err)
+	if r.WorkItemID == 0 && r.ProjectID != 0 {
+		r.WorkItemID = r.ProjectID
+	}
+	w, err := s.GetWorkItem(r.WorkItemID)
+	if err != nil {
+		return model.Rule{}, fmt.Errorf("work item %d: %w", r.WorkItemID, err)
+	}
+	if w.Status != model.StatusActive {
+		return model.Rule{}, errors.New("cannot create rule for done work item")
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO rules (project_id, field, match, pattern, priority, active)
+		`INSERT INTO rules (work_item_id, field, match, pattern, priority, active)
 		 VALUES (?, ?, ?, ?, ?, 1)`,
-		r.ProjectID, string(r.Field), string(r.Match), r.Pattern, r.Priority,
+		r.WorkItemID, string(r.Field), string(r.Match), r.Pattern, r.Priority,
 	)
 	if err != nil {
 		return model.Rule{}, err
@@ -43,15 +50,16 @@ func (s *Store) CreateRule(r model.Rule) (model.Rule, error) {
 	return s.GetRule(id)
 }
 
-const ruleCols = `id, project_id, field, match, pattern, priority, active, created_at`
+const ruleCols = `id, work_item_id, field, match, pattern, priority, active, created_at`
 
 func scanRule(row interface{ Scan(...any) error }) (model.Rule, error) {
 	var r model.Rule
 	var field, match string
 	var active int
-	if err := row.Scan(&r.ID, &r.ProjectID, &field, &match, &r.Pattern, &r.Priority, &active, &r.CreatedAt); err != nil {
+	if err := row.Scan(&r.ID, &r.WorkItemID, &field, &match, &r.Pattern, &r.Priority, &active, &r.CreatedAt); err != nil {
 		return model.Rule{}, err
 	}
+	r.ProjectID = r.WorkItemID
 	r.Field = model.RuleField(field)
 	r.Match = model.MatchKind(match)
 	r.Active = active != 0
@@ -69,11 +77,11 @@ func (s *Store) GetRule(id int64) (model.Rule, error) {
 }
 
 // ListRules returns rules. When activeOnly is true, only active rules of
-// active projects are returned, ordered by priority then id (match order).
+// active work items are returned, ordered by priority then id (match order).
 func (s *Store) ListRules(activeOnly bool) ([]model.Rule, error) {
 	q := `SELECT ` + ruleCols + ` FROM rules`
 	if activeOnly {
-		q += ` WHERE active = 1 AND project_id IN (SELECT id FROM projects WHERE status = 'active')`
+		q += ` WHERE active = 1 AND work_item_id IN (SELECT id FROM work_items WHERE status = 'active')`
 	}
 	q += ` ORDER BY priority ASC, id ASC`
 	rows, err := s.db.Query(q)

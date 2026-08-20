@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -22,15 +23,29 @@ var browserApps = map[string]bool{
 
 // AW is an ActivityWatch capture provider talking to the local REST API.
 type AW struct {
-	BaseURL string
-	client  *http.Client
+	BaseURL      string
+	client       *http.Client
+	ignoredApps  map[string]bool
+	storeURLPath bool
 }
 
 // NewAW builds a provider for the given base URL (e.g. http://localhost:5600).
 func NewAW(baseURL string) *AW {
+	return NewAWWithPrivacy(baseURL, nil, false)
+}
+
+// NewAWWithPrivacy configures pre-persistence filtering. App matching is
+// case-insensitive. URL queries, fragments, and user info are always removed.
+func NewAWWithPrivacy(baseURL string, ignoredApps []string, storeURLPath bool) *AW {
+	ignored := make(map[string]bool, len(ignoredApps))
+	for _, app := range ignoredApps {
+		ignored[strings.ToLower(strings.TrimSpace(app))] = true
+	}
 	return &AW{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		client:  &http.Client{Timeout: 15 * time.Second},
+		BaseURL:      strings.TrimRight(baseURL, "/"),
+		client:       &http.Client{Timeout: 15 * time.Second},
+		ignoredApps:  ignored,
+		storeURLPath: storeURLPath,
 	}
 }
 
@@ -92,9 +107,11 @@ func (a *AW) buckets(ctx context.Context) (map[string]bucket, error) {
 }
 
 func (a *AW) events(ctx context.Context, bucketID string, from, to time.Time) ([]awEvent, error) {
-	u := fmt.Sprintf("%s/api/0/buckets/%s/events?start=%s&end=%s",
-		a.BaseURL, bucketID,
-		from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339))
+	query := url.Values{}
+	query.Set("start", from.UTC().Format(time.RFC3339))
+	query.Set("end", to.UTC().Format(time.RFC3339))
+	query.Set("limit", "-1")
+	u := fmt.Sprintf("%s/api/0/buckets/%s/events?%s", a.BaseURL, url.PathEscape(bucketID), query.Encode())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -143,6 +160,53 @@ func activeOverlap(s, e time.Time, active []interval, haveAFK bool) float64 {
 	return total
 }
 
+func activeFragments(s, e time.Time, active []interval, haveAFK bool) []interval {
+	if !haveAFK {
+		return []interval{{start: s, end: e}}
+	}
+	var out []interval
+	for _, iv := range active {
+		start := maxTime(s, iv.start)
+		end := minTime(e, iv.end)
+		if !end.After(start) {
+			continue
+		}
+		if len(out) > 0 && !start.After(out[len(out)-1].end) {
+			if end.After(out[len(out)-1].end) {
+				out[len(out)-1].end = end
+			}
+			continue
+		}
+		out = append(out, interval{start: start, end: end})
+	}
+	return out
+}
+
+func sanitizedURL(raw string, storePath bool) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Hostname() == "" {
+		return ""
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	u.RawFragment = ""
+	if !storePath {
+		u.Path = ""
+		u.RawPath = ""
+	}
+	return u.String()
+}
+
+func sensitiveWindow(app, title string, ignored map[string]bool) bool {
+	if ignored[strings.ToLower(strings.TrimSpace(app))] {
+		return true
+	}
+	t := strings.ToLower(title)
+	return strings.Contains(t, "incognito") || strings.Contains(t, "private browsing") || strings.Contains(t, "private window")
+}
+
 // Pull implements Provider: it discovers window/afk/web buckets, subtracts AFK
 // time, enriches browser events with tab URLs, and extracts repo/domain
 // signals. Each returned event has a stable SourceKey for idempotent syncs.
@@ -154,15 +218,31 @@ func (a *AW) Pull(ctx context.Context, from, to time.Time) ([]model.Event, error
 	var windowBucket, afkBucket string
 	var webBuckets []string
 	for id, b := range bks {
-		switch {
-		case strings.HasPrefix(id, "aw-watcher-window") || b.Type == "currentwindow":
+		switch b.Type {
+		case "currentwindow":
 			windowBucket = id
-		case strings.HasPrefix(id, "aw-watcher-afk") || b.Type == "afkstatus":
+		case "afkstatus":
 			afkBucket = id
-		case strings.HasPrefix(id, "aw-watcher-web") || b.Type == "web.tab.current":
+		case "web.tab.current":
 			webBuckets = append(webBuckets, id)
 		}
 	}
+	// Older ActivityWatch versions may omit bucket types. Use ID prefixes only
+	// as a compatibility fallback, never in preference to declared types.
+	for id, b := range bks {
+		if b.Type != "" {
+			continue
+		}
+		switch {
+		case windowBucket == "" && strings.HasPrefix(id, "aw-watcher-window"):
+			windowBucket = id
+		case afkBucket == "" && strings.HasPrefix(id, "aw-watcher-afk"):
+			afkBucket = id
+		case strings.HasPrefix(id, "aw-watcher-web"):
+			webBuckets = append(webBuckets, id)
+		}
+	}
+	sort.Strings(webBuckets)
 	if windowBucket == "" {
 		return nil, fmt.Errorf("no aw-watcher-window bucket found; is the window watcher running?")
 	}
@@ -194,34 +274,52 @@ func (a *AW) Pull(ctx context.Context, from, to time.Time) ([]model.Event, error
 
 	out := make([]model.Event, 0, len(windowEvents))
 	for _, w := range windowEvents {
-		secs := activeOverlap(w.Timestamp, w.end(), active, haveAFK)
-		if secs < 1 {
-			continue // fully idle or negligible
+		clippedStart := maxTime(w.Timestamp, from)
+		clippedEnd := minTime(w.end(), to)
+		if !clippedEnd.After(clippedStart) {
+			continue
 		}
 		app := w.str("app")
 		title := w.str("title")
-		ev := model.Event{
-			Start:     w.Timestamp,
-			Duration:  secs,
-			App:       app,
-			Title:     title,
-			SourceKey: fmt.Sprintf("aw:%s:%d", windowBucket, w.ID),
+		group := fmt.Sprintf("aw:%s:%d", windowBucket, w.ID)
+		fragments := activeFragments(clippedStart, clippedEnd, active, haveAFK)
+		if sensitiveWindow(app, title, a.ignoredApps) || len(fragments) == 0 {
+			out = append(out, model.Event{SourceGroup: group, CaptureComplete: true})
+			continue
 		}
-		if browserApps[strings.ToLower(strings.TrimSpace(app))] {
-			if web := bestWebOverlap(w, webEvents); web != nil {
-				ev.URL = web.str("url")
-				if t := web.str("title"); t != "" {
-					ev.Title = t
+		groupStart := len(out)
+		for i, fragment := range fragments {
+			if fragment.end.Sub(fragment.start) < time.Second {
+				continue
+			}
+			key := group
+			if len(fragments) > 1 {
+				key = fmt.Sprintf("%s:part:%d", group, i)
+			}
+			ev := model.Event{
+				Start: fragment.start, Duration: fragment.end.Sub(fragment.start).Seconds(),
+				App: app, Title: title, SourceKey: key, SourceGroup: group,
+			}
+			segment := awEvent{Timestamp: fragment.start, Duration: fragment.end.Sub(fragment.start).Seconds()}
+			if browserApps[strings.ToLower(strings.TrimSpace(app))] {
+				if web := bestWebOverlap(segment, webEvents); web != nil {
+					ev.URL = sanitizedURL(web.str("url"), a.storeURLPath)
+					if t := web.str("title"); t != "" {
+						ev.Title = t
+					}
 				}
 			}
+			if sensitiveWindow(ev.App, ev.Title, a.ignoredApps) {
+				continue
+			}
+			ev.Repo = Repo(ev.Title)
+			out = append(out, ev)
 		}
-		ev.Repo = Repo(ev.Title)
-		if ev.URL != "" {
-			// Store the domain in Repo's sibling: rules match url on domain-ish
-			// substrings, so keep the full URL but ensure domain is derivable.
-			// The rule engine matches against the URL field directly.
+		if len(out) == groupStart {
+			out = append(out, model.Event{SourceGroup: group, CaptureComplete: true})
+		} else {
+			out[len(out)-1].CaptureComplete = true
 		}
-		out = append(out, ev)
 	}
 	return out, nil
 }

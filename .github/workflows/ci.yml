@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main, "feat/**", "fix/**"]
   pull_request:
 
 jobs:
@@ -24,6 +24,8 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./... -count=1
+      - name: Race test
+        run: go test -race ./... -count=1
       - name: Build
         run: go build ./...
 

@@ -21,11 +21,11 @@ func rulesCmd() *cobra.Command {
 }
 
 func rulesAddCmd() *cobra.Command {
-	var project, field, match string
+	var item, field, match string
 	var priority int
 	c := &cobra.Command{
 		Use:   "add <pattern>",
-		Short: "Add a rule mapping matching events to a project",
+		Short: "Add a rule mapping matching events to a work item",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, closeFn, err := openApp()
@@ -33,22 +33,23 @@ func rulesAddCmd() *cobra.Command {
 				return err
 			}
 			defer closeFn()
-			rule, err := app.AddRule(project, model.RuleField(field), model.MatchKind(match), args[0], priority)
+			rule, err := app.AddRule(item, model.RuleField(field), model.MatchKind(match), args[0], priority)
 			if err != nil {
 				return err
 			}
 			if jsonOut {
 				return emitJSON(rule)
 			}
-			fmt.Printf("Added rule #%d: %s %s %q -> project #%d\n", rule.ID, rule.Field, rule.Match, rule.Pattern, rule.ProjectID)
+			fmt.Printf("Added rule #%d: %s %s %q -> work item #%d\n", rule.ID, rule.Field, rule.Match, rule.Pattern, rule.WorkItemID)
 			return nil
 		},
 	}
-	c.Flags().StringVar(&project, "project", "", "project id or name (required)")
+	c.Flags().StringVar(&item, "item", "", "work item ID or name")
+	c.Flags().StringVar(&item, "project", "", "legacy alias for --item")
 	c.Flags().StringVar(&field, "field", "title", "app, title, url, or repo")
 	c.Flags().StringVar(&match, "match", "contains", "contains, equals, or regex")
 	c.Flags().IntVar(&priority, "priority", 100, "lower is evaluated first")
-	c.MarkFlagRequired("project")
+	c.MarkFlagsOneRequired("item", "project")
 	return c
 }
 
@@ -75,14 +76,14 @@ func rulesListCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tPROJECT\tFIELD\tMATCH\tPATTERN\tPRIO\tACTIVE")
+			fmt.Fprintln(w, "ID	WORK ITEM	FIELD	MATCH	PATTERN	PRIO	ACTIVE")
 			for _, r := range rules {
-				fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%d\t%v\n", r.ID, r.ProjectID, r.Field, r.Match, r.Pattern, r.Priority, r.Active)
+				fmt.Fprintf(w, "%d	%d	%s	%s	%s	%d	%v\n", r.ID, r.WorkItemID, r.Field, r.Match, r.Pattern, r.Priority, r.Active)
 			}
 			return w.Flush()
 		},
 	}
-	c.Flags().BoolVar(&activeOnly, "active", false, "only active rules of active projects")
+	c.Flags().BoolVar(&activeOnly, "active", false, "only active rules of active work items")
 	return c
 }
 

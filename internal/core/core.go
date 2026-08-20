@@ -1,11 +1,9 @@
-// Package core is Tally's application service: the single set of operations
-// that the CLI, the MCP server, and the web UI all call. Keeping every action
-// here is what guarantees human/agent parity — there is no capability reachable
-// from one surface that isn't reachable from the others.
+// Package core is Tally's application service.
 package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -19,28 +17,21 @@ import (
 	"github.com/blakep-lms/tally/internal/store"
 )
 
-// App bundles the store and config into the shared service surface.
 type App struct {
 	Store *store.Store
 	Cfg   config.Config
 }
 
-// New builds an App.
-func New(st *store.Store, cfg config.Config) *App {
-	return &App{Store: st, Cfg: cfg}
-}
-
-// Provider returns the configured capture provider (ActivityWatch in v1).
+func New(st *store.Store, cfg config.Config) *App { return &App{Store: st, Cfg: cfg} }
 func (a *App) Provider() capture.Provider {
-	return capture.NewAW(a.Cfg.ActivityWatchURL)
+	return capture.NewAWWithPrivacy(a.Cfg.ActivityWatchURL, a.Cfg.IgnoredApps, a.Cfg.StoreURLPaths)
 }
 
-// --- Status -------------------------------------------------------------
-
-// Status is a snapshot of the system for `tally status`.
 type Status struct {
 	Provider          string  `json:"provider"`
 	ProviderConnected bool    `json:"provider_connected"`
+	ActiveWorkItems   int     `json:"active_work_items"`
+	DoneWorkItems     int     `json:"done_work_items"`
 	ActiveProjects    int     `json:"active_projects"`
 	DoneProjects      int     `json:"done_projects"`
 	ActiveRules       int     `json:"active_rules"`
@@ -51,72 +42,96 @@ type Status struct {
 	LLMEnabled        bool    `json:"llm_enabled"`
 }
 
-// Status computes the current snapshot.
 func (a *App) Status(ctx context.Context) (Status, error) {
 	var s Status
 	p := a.Provider()
 	s.Provider = p.Name()
 	s.ProviderConnected = p.Available(ctx)
 	s.LLMEnabled = a.Cfg.LLMEnabled
-
-	active, err := a.Store.ListProjects(model.StatusActive)
+	active, err := a.Store.ListWorkItems(model.StatusActive)
 	if err != nil {
 		return s, err
 	}
-	s.ActiveProjects = len(active)
-	done, err := a.Store.ListProjects(model.StatusDone)
+	done, err := a.Store.ListWorkItems(model.StatusDone)
 	if err != nil {
 		return s, err
 	}
-	s.DoneProjects = len(done)
-
+	s.ActiveWorkItems = len(active)
+	s.DoneWorkItems = len(done)
+	for _, w := range active {
+		if w.Kind == model.KindProject {
+			s.ActiveProjects++
+		}
+	}
+	for _, w := range done {
+		if w.Kind == model.KindProject {
+			s.DoneProjects++
+		}
+	}
 	rules, err := a.Store.ListRules(true)
 	if err != nil {
 		return s, err
 	}
 	s.ActiveRules = len(rules)
-
-	all, err := a.Store.ListEvents(store.EventFilter{})
+	eventCount, err := a.Store.CountEvents()
 	if err != nil {
 		return s, err
 	}
-	s.EventsTotal = len(all)
-
+	s.EventsTotal = eventCount
 	dayFrom, dayTo := TodayRange(time.Now())
 	weekFrom, weekTo := WeekRange(time.Now())
-	if secs, err := a.Store.UnclassifiedSeconds(dayFrom, dayTo); err == nil {
-		s.UnclassifiedToday = secs / 3600
+	if _, unclassified, total, err := a.Store.ReportWindow(dayFrom, dayTo); err == nil {
+		s.UnclassifiedToday = unclassified / 3600
+		s.TrackedToday = total / 3600
 	}
-	if secs, err := a.Store.TotalSeconds(dayFrom, dayTo); err == nil {
-		s.TrackedToday = secs / 3600
-	}
-	if secs, err := a.Store.TotalSeconds(weekFrom, weekTo); err == nil {
-		s.TrackedWeek = secs / 3600
+	if _, _, total, err := a.Store.ReportWindow(weekFrom, weekTo); err == nil {
+		s.TrackedWeek = total / 3600
 	}
 	return s, nil
 }
 
-// --- Projects -----------------------------------------------------------
+func (a *App) AddWorkItem(name string, kind model.WorkItemKind, context, description string) (model.WorkItem, error) {
+	return a.Store.CreateWorkItem(name, kind, context, description)
+}
+func (a *App) ListWorkItems(status model.WorkItemStatus) ([]model.WorkItem, error) {
+	return a.Store.ListWorkItems(status)
+}
+func (a *App) UpdateWorkItem(id int64, name string, kind model.WorkItemKind, context, description string) (model.WorkItem, error) {
+	return a.Store.UpdateWorkItem(id, name, kind, context, description)
+}
+func (a *App) ResolveWorkItem(idOrName string) (model.WorkItem, error) {
+	if id, err := strconv.ParseInt(idOrName, 10, 64); err == nil {
+		return a.Store.GetWorkItem(id)
+	}
+	return a.Store.GetWorkItemByName(idOrName)
+}
+func (a *App) MarkWorkItemDone(idOrName string) (model.WorkItem, error) {
+	w, err := a.ResolveWorkItem(idOrName)
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	return a.Store.MarkWorkItemDone(w.ID)
+}
+func (a *App) ReactivateWorkItem(idOrName string) (model.WorkItem, error) {
+	w, err := a.ResolveWorkItem(idOrName)
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	return a.Store.ReactivateWorkItem(w.ID)
+}
 
-// AddProject creates a project.
 func (a *App) AddProject(name string, typ model.ProjectType, client string) (model.Project, error) {
 	return a.Store.CreateProject(name, typ, client)
 }
-
-// ListProjects lists projects filtered by status ("" = all).
 func (a *App) ListProjects(status model.ProjectStatus) ([]model.Project, error) {
 	return a.Store.ListProjects(status)
 }
-
-// ResolveProject looks up a project by numeric id or by exact name.
 func (a *App) ResolveProject(idOrName string) (model.Project, error) {
 	if id, err := strconv.ParseInt(idOrName, 10, 64); err == nil {
 		return a.Store.GetProject(id)
 	}
 	return a.Store.GetProjectByName(idOrName)
 }
-
-// MarkDone archives a project.
 func (a *App) MarkDone(idOrName string) (model.Project, error) {
 	p, err := a.ResolveProject(idOrName)
 	if err != nil {
@@ -125,35 +140,17 @@ func (a *App) MarkDone(idOrName string) (model.Project, error) {
 	return a.Store.MarkDone(p.ID)
 }
 
-// --- Rules --------------------------------------------------------------
-
-// AddRule creates a classification rule for a project.
-func (a *App) AddRule(projectIDOrName string, field model.RuleField, match model.MatchKind, pattern string, priority int) (model.Rule, error) {
-	p, err := a.ResolveProject(projectIDOrName)
+func (a *App) AddRule(workItemIDOrName string, field model.RuleField, match model.MatchKind, pattern string, priority int) (model.Rule, error) {
+	w, err := a.ResolveWorkItem(workItemIDOrName)
 	if err != nil {
 		return model.Rule{}, err
 	}
-	return a.Store.CreateRule(model.Rule{
-		ProjectID: p.ID,
-		Field:     field,
-		Match:     match,
-		Pattern:   pattern,
-		Priority:  priority,
-	})
+	return a.Store.CreateRule(model.Rule{WorkItemID: w.ID, Field: field, Match: match, Pattern: pattern, Priority: priority})
 }
-
-// ListRules lists rules (activeOnly limits to live rules of active projects).
-func (a *App) ListRules(activeOnly bool) ([]model.Rule, error) {
-	return a.Store.ListRules(activeOnly)
-}
-
-// DeleteRule removes a rule by id.
-func (a *App) DeleteRule(id int64) error { return a.Store.DeleteRule(id) }
-
-// TestRule reports which of the current unclassified events a candidate rule
-// would match, without persisting the rule. Useful for `rules test`.
+func (a *App) ListRules(activeOnly bool) ([]model.Rule, error) { return a.Store.ListRules(activeOnly) }
+func (a *App) DeleteRule(id int64) error                       { return a.Store.DeleteRule(id) }
 func (a *App) TestRule(field model.RuleField, match model.MatchKind, pattern string, limit int) ([]model.Event, error) {
-	probe := model.Rule{ProjectID: -1, Field: field, Match: match, Pattern: pattern, Priority: 1, Active: true}
+	probe := model.Rule{WorkItemID: -1, Field: field, Match: match, Pattern: pattern, Priority: 1, Active: true}
 	eng := classify.NewEngine([]model.Rule{probe})
 	events, err := a.Store.ListEvents(store.EventFilter{})
 	if err != nil {
@@ -171,17 +168,14 @@ func (a *App) TestRule(field model.RuleField, match model.MatchKind, pattern str
 	return hits, nil
 }
 
-// --- Capture / sync -----------------------------------------------------
-
-// SyncResult reports what a sync pulled.
 type SyncResult struct {
-	Pulled  int `json:"pulled"`
-	Created int `json:"created"`
-	Updated int `json:"updated"`
+	Pulled    int `json:"pulled"`
+	Created   int `json:"created"`
+	Updated   int `json:"updated"`
+	Deleted   int `json:"deleted"`
+	Conflicts int `json:"conflicts"`
 }
 
-// Sync pulls events from the provider for [from, to) and upserts them. It is
-// idempotent: re-running over the same window creates no duplicates.
 func (a *App) Sync(ctx context.Context, from, to time.Time) (SyncResult, error) {
 	var res SyncResult
 	p := a.Provider()
@@ -192,27 +186,27 @@ func (a *App) Sync(ctx context.Context, from, to time.Time) (SyncResult, error) 
 	if err != nil {
 		return res, err
 	}
-	res.Pulled = len(events)
-	for _, e := range events {
-		created, err := a.Store.UpsertEvent(e)
-		if err != nil {
-			return res, err
-		}
-		if created {
-			res.Created++
-		} else {
-			res.Updated++
-		}
-	}
-	return res, nil
+	return a.IngestEvents(events)
 }
-
-// IngestEvents upserts externally-supplied events (used for seeding/testing and
-// by capture backends that push rather than pull).
 func (a *App) IngestEvents(events []model.Event) (SyncResult, error) {
 	var res SyncResult
-	res.Pulled = len(events)
+	groups := map[string][]model.Event{}
+	complete := map[string]bool{}
 	for _, e := range events {
+		if e.SourceGroup != "" {
+			if e.Duration > 0 && e.SourceKey != "" {
+				groups[e.SourceGroup] = append(groups[e.SourceGroup], e)
+				res.Pulled++
+			}
+			if e.CaptureComplete {
+				complete[e.SourceGroup] = true
+			}
+			continue
+		}
+		if e.Duration <= 0 {
+			continue
+		}
+		res.Pulled++
 		created, err := a.Store.UpsertEvent(e)
 		if err != nil {
 			return res, err
@@ -223,12 +217,37 @@ func (a *App) IngestEvents(events []model.Event) (SyncResult, error) {
 			res.Updated++
 		}
 	}
+	for group := range complete {
+		created, updated, deleted, conflicts, err := a.Store.ReplaceEventGroup(group, groups[group])
+		if err != nil {
+			return res, err
+		}
+		res.Created += created
+		res.Updated += updated
+		res.Deleted += deleted
+		res.Conflicts += conflicts
+	}
+	// A grouped event without the completion marker is intentionally not used
+	// for destructive reconciliation; ingest it conservatively instead.
+	for group, pending := range groups {
+		if complete[group] {
+			continue
+		}
+		for _, e := range pending {
+			created, err := a.Store.UpsertEvent(e)
+			if err != nil {
+				return res, err
+			}
+			if created {
+				res.Created++
+			} else {
+				res.Updated++
+			}
+		}
+	}
 	return res, nil
 }
 
-// --- Classification -----------------------------------------------------
-
-// ClassifyResult reports how a classification pass bucketed events.
 type ClassifyResult struct {
 	Considered        int `json:"considered"`
 	MatchedByRule     int `json:"matched_by_rule"`
@@ -236,9 +255,6 @@ type ClassifyResult struct {
 	StillUnclassified int `json:"still_unclassified"`
 }
 
-// Classify runs the deterministic rule engine over all unclassified events and,
-// when useLLM is set and LLM classification is enabled, falls back to the model
-// for whatever the rules didn't catch.
 func (a *App) Classify(ctx context.Context, useLLM bool) (ClassifyResult, error) {
 	var res ClassifyResult
 	rules, err := a.Store.ListRules(true)
@@ -246,18 +262,16 @@ func (a *App) Classify(ctx context.Context, useLLM bool) (ClassifyResult, error)
 		return res, err
 	}
 	eng := classify.NewEngine(rules)
-
 	pending, err := a.Store.ListEvents(store.EventFilter{UnclassOnly: true})
 	if err != nil {
 		return res, err
 	}
 	res.Considered = len(pending)
-
 	var remaining []model.Event
 	for _, e := range pending {
 		if m, ok := eng.Classify(e); ok {
 			rid := m.RuleID
-			if err := a.Store.ClassifyEvent(e.ID, &m.ProjectID, &rid, m.Source); err != nil {
+			if err := a.Store.ClassifyEvent(e.ID, &m.WorkItemID, &rid, m.Source); err != nil {
 				return res, err
 			}
 			res.MatchedByRule++
@@ -265,7 +279,6 @@ func (a *App) Classify(ctx context.Context, useLLM bool) (ClassifyResult, error)
 			remaining = append(remaining, e)
 		}
 	}
-
 	if useLLM && a.Cfg.LLMEnabled {
 		n, err := a.classifyWithLLM(ctx, remaining)
 		if err != nil {
@@ -273,11 +286,9 @@ func (a *App) Classify(ctx context.Context, useLLM bool) (ClassifyResult, error)
 		}
 		res.MatchedByLLM = n
 	}
-
 	res.StillUnclassified = len(remaining) - res.MatchedByLLM
 	return res, nil
 }
-
 func (a *App) classifyWithLLM(ctx context.Context, events []model.Event) (int, error) {
 	key := a.Cfg.APIKey()
 	if key == "" {
@@ -286,18 +297,16 @@ func (a *App) classifyWithLLM(ctx context.Context, events []model.Event) (int, e
 	if len(events) == 0 {
 		return 0, nil
 	}
-	projects, err := a.Store.ListProjects(model.StatusActive)
+	items, err := a.Store.ListWorkItems(model.StatusActive)
 	if err != nil {
 		return 0, err
 	}
-	if len(projects) == 0 {
+	if len(items) == 0 {
 		return 0, nil
 	}
-
-	// Deduplicate to unique signals; resolve as many as possible from cache.
 	type sigInfo struct {
 		signal   classify.Signal
-		projPtr  *int64
+		ptr      *int64
 		resolved bool
 	}
 	uniq := map[string]*sigInfo{}
@@ -309,17 +318,15 @@ func (a *App) classifyWithLLM(ctx context.Context, events []model.Event) (int, e
 			continue
 		}
 		info := &sigInfo{signal: s}
-		if pid, hit, err := a.Store.LLMCacheGet(k); err == nil && hit {
+		if id, hit, err := a.Store.LLMCacheGet(k); err == nil && hit {
 			info.resolved = true
-			if pid != 0 {
-				info.projPtr = &pid
+			if id != 0 {
+				info.ptr = &id
 			}
 		}
 		uniq[k] = info
 		order = append(order, k)
 	}
-
-	// Collect the still-unresolved signals and ask the model in one batch.
 	var askKeys []string
 	var askSignals []classify.Signal
 	for _, k := range order {
@@ -329,28 +336,26 @@ func (a *App) classifyWithLLM(ctx context.Context, events []model.Event) (int, e
 		}
 	}
 	if len(askSignals) > 0 {
-		llm := classify.NewLLMClassifier(key, a.Cfg.LLMModel)
-		suggestions, err := llm.Suggest(ctx, projects, askSignals)
+		llm := classify.NewLLMClassifier(key, a.Cfg.LLMModel, a.Cfg.LLMMinConfidence)
+		suggestions, err := llm.Suggest(ctx, items, askSignals)
 		if err != nil {
 			return 0, err
 		}
 		for i, k := range askKeys {
 			uniq[k].resolved = true
-			uniq[k].projPtr = suggestions[i]
+			uniq[k].ptr = suggestions[i]
 			if err := a.Store.LLMCachePut(k, suggestions[i]); err != nil {
 				return 0, err
 			}
 		}
 	}
-
-	// Apply resolved signals back to every matching event.
 	matched := 0
 	for _, e := range events {
 		info := uniq[classify.SignalOf(e).Key()]
-		if info == nil || info.projPtr == nil {
+		if info == nil || info.ptr == nil {
 			continue
 		}
-		if err := a.Store.ClassifyEvent(e.ID, info.projPtr, nil, "llm"); err != nil {
+		if err := a.Store.ClassifyEvent(e.ID, info.ptr, nil, "llm"); err != nil {
 			return matched, err
 		}
 		matched++
@@ -358,51 +363,31 @@ func (a *App) classifyWithLLM(ctx context.Context, events []model.Event) (int, e
 	return matched, nil
 }
 
-// AssignEvent manually attributes an event to a project (source "manual"), and
-// optionally generates a rule so similar events classify automatically. Passing
-// projectIDOrName == "" clears the classification.
-func (a *App) AssignEvent(eventID int64, projectIDOrName string, makeRule bool, ruleField model.RuleField) (model.Rule, bool, error) {
-	if projectIDOrName == "" {
+func (a *App) AssignEvent(eventID int64, workItemIDOrName string, makeRule bool, ruleField model.RuleField) (model.Rule, bool, error) {
+	if workItemIDOrName == "" {
 		return model.Rule{}, false, a.Store.ClassifyEvent(eventID, nil, nil, "")
 	}
-	p, err := a.ResolveProject(projectIDOrName)
+	w, err := a.ResolveWorkItem(workItemIDOrName)
 	if err != nil {
 		return model.Rule{}, false, err
 	}
-	if err := a.Store.ClassifyEvent(eventID, &p.ID, nil, "manual"); err != nil {
+	if err := a.Store.ClassifyEvent(eventID, &w.ID, nil, "manual"); err != nil {
 		return model.Rule{}, false, err
 	}
 	if !makeRule {
 		return model.Rule{}, false, nil
 	}
-	events, err := a.Store.ListEvents(store.EventFilter{})
+	ev, err := a.Store.GetEvent(eventID)
 	if err != nil {
 		return model.Rule{}, false, err
 	}
-	var ev *model.Event
-	for i := range events {
-		if events[i].ID == eventID {
-			ev = &events[i]
-			break
-		}
-	}
-	if ev == nil {
-		return model.Rule{}, false, store.ErrNotFound
-	}
-	pattern := ruleValueFor(ruleField, *ev)
+	pattern := ruleValueFor(ruleField, ev)
 	if pattern == "" {
 		return model.Rule{}, false, fmt.Errorf("event has no %s value to build a rule from", ruleField)
 	}
-	rule, err := a.Store.CreateRule(model.Rule{
-		ProjectID: p.ID,
-		Field:     ruleField,
-		Match:     model.MatchContains,
-		Pattern:   pattern,
-		Priority:  100,
-	})
+	rule, err := a.Store.CreateRule(model.Rule{WorkItemID: w.ID, Field: ruleField, Match: model.MatchContains, Pattern: pattern, Priority: 100})
 	return rule, err == nil, err
 }
-
 func ruleValueFor(f model.RuleField, e model.Event) string {
 	switch f {
 	case model.FieldApp:
@@ -416,45 +401,134 @@ func ruleValueFor(f model.RuleField, e model.Event) string {
 	}
 	return ""
 }
-
-// ListUnclassified returns the unclassified triage queue.
 func (a *App) ListUnclassified(limit int) ([]model.Event, error) {
 	return a.Store.ListEvents(store.EventFilter{UnclassOnly: true, Limit: limit})
 }
-
-// --- Reports ------------------------------------------------------------
-
-// Report computes an hours report for [from, to).
 func (a *App) Report(from, to time.Time) (report.Report, error) {
-	hours, err := a.Store.HoursByProject(from, to)
-	if err != nil {
-		return report.Report{}, err
-	}
-	unclassified, err := a.Store.UnclassifiedSeconds(from, to)
-	if err != nil {
-		return report.Report{}, err
-	}
-	total, err := a.Store.TotalSeconds(from, to)
-	if err != nil {
-		return report.Report{}, err
-	}
-	return report.Build(from, to, hours, unclassified, total), nil
+	return a.ReportWithBilling(from, to, false)
 }
 
-// --- Time windows -------------------------------------------------------
+func (a *App) ReportWithBilling(from, to time.Time, includeBilling bool) (report.Report, error) {
+	hours, unclassified, total, err := a.Store.ReportWindow(from, to)
+	if err != nil {
+		return report.Report{}, err
+	}
+	var profiles map[int64]model.BillingProfile
+	if includeBilling {
+		profiles = map[int64]model.BillingProfile{}
+		for _, wh := range hours {
+			resolved, err := a.Store.ResolveBillingProfile(wh.WorkItem)
+			if err != nil {
+				return report.Report{}, err
+			}
+			profiles[wh.WorkItem.ID] = resolved.Profile
+		}
+	}
+	return report.BuildWorkItemsChecked(from, to, hours, unclassified, total, profiles)
+}
 
-// TodayRange returns [midnight, next midnight) in local time for t.
+func (a *App) SetBillingProfile(p model.BillingProfile) (model.BillingProfile, error) {
+	return a.Store.SetBillingProfile(p)
+}
+func (a *App) PatchBillingProfile(patch model.BillingProfilePatch) (model.BillingProfile, error) {
+	if !patch.ScopeType.Valid() {
+		return model.BillingProfile{}, fmt.Errorf("invalid billing scope %q", patch.ScopeType)
+	}
+	base, err := a.Store.GetBillingProfile(patch.ScopeType, patch.ScopeKey)
+	if errors.Is(err, store.ErrNotFound) {
+		base = model.DefaultBillingProfile()
+	} else if err != nil {
+		return model.BillingProfile{}, err
+	}
+	return a.Store.SetBillingProfile(patch.Apply(base))
+}
+func (a *App) ResolveBillingProfile(itemIDOrName string) (store.ResolvedBillingProfile, error) {
+	w, err := a.ResolveWorkItem(itemIDOrName)
+	if err != nil {
+		return store.ResolvedBillingProfile{}, err
+	}
+	return a.Store.ResolveBillingProfile(w)
+}
+
+func (a *App) ReportWorkItemWithBilling(item model.WorkItem, from, to time.Time, includeBilling bool) (report.Report, error) {
+	hours, err := a.Store.HoursByWorkItem(from, to)
+	if err != nil {
+		return report.Report{}, err
+	}
+	var selected []model.WorkItemHours
+	var total float64
+	for _, line := range hours {
+		if line.WorkItem.ID == item.ID {
+			selected = append(selected, line)
+			total = line.Seconds
+			break
+		}
+	}
+	var profiles map[int64]model.BillingProfile
+	if includeBilling {
+		resolved, err := a.Store.ResolveBillingProfile(item)
+		if err != nil {
+			return report.Report{}, err
+		}
+		profiles = map[int64]model.BillingProfile{item.ID: resolved.Profile}
+	}
+	return report.BuildWorkItemsChecked(from, to, selected, 0, total, profiles)
+}
+
+func FinalRange(item model.WorkItem, now time.Time) (time.Time, time.Time) {
+	to := now
+	if item.DoneAt != nil {
+		to = *item.DoneAt
+	}
+	return item.CreatedAt, to
+}
+
+func (a *App) FinalizeReport(rep report.Report, label string, period model.PeriodMode, timezone string) (model.ReportSnapshot, error) {
+	payload, err := json.Marshal(rep)
+	if err != nil {
+		return model.ReportSnapshot{}, err
+	}
+	return a.Store.SaveReportSnapshot(model.ReportSnapshot{Label: label, PeriodMode: period, From: rep.From, To: rep.To, Timezone: timezone, Payload: payload})
+}
+
+func PeriodRange(mode model.PeriodMode, anchor string, now time.Time) (time.Time, time.Time) {
+	switch mode {
+	case model.PeriodWeekly:
+		return WeekRange(now)
+	case model.PeriodBiweekly:
+		start, _ := WeekRange(now)
+		y, m, d := start.Date()
+		civilStart := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+		ref := time.Date(1970, 1, 5, 0, 0, 0, 0, time.UTC)
+		days := int(civilStart.Sub(ref).Hours() / 24)
+		if (days/7)%2 != 0 {
+			start = start.AddDate(0, 0, -7)
+		}
+		return start, start.AddDate(0, 0, 14)
+	case model.PeriodSemimonthly:
+		y, m, d := now.Date()
+		if d <= 15 {
+			s := time.Date(y, m, 1, 0, 0, 0, 0, now.Location())
+			return s, time.Date(y, m, 16, 0, 0, 0, 0, now.Location())
+		}
+		s := time.Date(y, m, 16, 0, 0, 0, 0, now.Location())
+		return s, time.Date(y, m+1, 1, 0, 0, 0, 0, now.Location())
+	case model.PeriodMonthly:
+		y, m, _ := now.Date()
+		s := time.Date(y, m, 1, 0, 0, 0, 0, now.Location())
+		return s, s.AddDate(0, 1, 0)
+	default:
+		return time.Time{}, now
+	}
+}
 func TodayRange(t time.Time) (time.Time, time.Time) {
 	y, m, d := t.Date()
 	start := time.Date(y, m, d, 0, 0, 0, 0, t.Location())
 	return start, start.AddDate(0, 0, 1)
 }
-
-// WeekRange returns the Monday-anchored week [start, start+7d) containing t.
 func WeekRange(t time.Time) (time.Time, time.Time) {
 	y, m, d := t.Date()
 	start := time.Date(y, m, d, 0, 0, 0, 0, t.Location())
-	// Go: Sunday=0..Saturday=6; anchor to Monday.
 	offset := (int(start.Weekday()) + 6) % 7
 	start = start.AddDate(0, 0, -offset)
 	return start, start.AddDate(0, 0, 7)

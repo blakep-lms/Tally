@@ -1,249 +1,280 @@
 # Tally
 
-**Automatic, local-first time tracking for multi-project builders — and their agents.**
+Tally is a local-first system for understanding exactly where time goes across projects, products, goals, and other work.
 
-Tally passively captures what you're actually focused on, automatically classifies
-that time into projects (billable client work vs. internal builds), and shows it in a
-dashboard where you can see every project, triage anything ambiguous in a couple of
-minutes, and produce a per-project hours report you trust for billing.
+It captures focused activity from ActivityWatch, removes idle time without collapsing the timeline, applies deterministic rules and optional confidence-gated LLM classification, preserves correction history, and reports exact time. Optional billing profiles derive invoice-ready projections without changing source events or turning Tally into payroll, payment, tax, or accounting software.
 
-No timers. You never start or stop anything.
+## Product boundary
 
-Everything a human can do at the terminal or in the dashboard, an AI agent can do over
-[MCP](#agent-access-mcp) — full parity, no read-only crippling.
+Tally has one canonical unit: a **work item**.
 
-> Status: v1, macOS, local-only. "Tally" is a working name pending a collision check.
+| Kind | Typical use |
+| --- | --- |
+| `project` | Client or internal project |
+| `product` | Product development and operations |
+| `goal` | Outcome-oriented investment |
+| `other` | Work that does not fit the first three |
 
----
+Work items are `active` or `done`. Completing one stops future assignments and deactivates its rules while preserving historical time and audit records. Existing project-only databases migrate automatically; legacy project commands and fields remain compatibility aliases over the same records.
 
-## Why
+Exact captured time is always authoritative. Billing is an optional projection over exact classified intervals.
 
-If you run several client projects and internal builds at once — dozens of tabs,
-terminals, and IDE windows — you can't reliably reconstruct where your hours went.
-Manual timers fail because they depend on remembering to start/stop them at every
-context switch, which is exactly what heavy context-switchers don't do. Tally captures
-passively instead, so your invoices are built on data, not memory.
+## Requirements
 
----
+- Go 1.25 or newer
+- ActivityWatch for automatic capture
+- macOS or Linux for packaged releases
 
-## How it works
+ActivityWatch remains the capture authority. Tally does not install keyloggers, take screenshots, or send activity to a hosted Tally service.
 
-```
-ActivityWatch  ──►  tally sync  ──►  events (AFK-cleaned)  ──►  tally classify  ──►  per-project hours
- (window/web/AFK)                     stored in ~/.tally/tally.db      rules + optional LLM        report / dashboard / MCP
-```
+## Build and initialize
 
-Tally layers on [ActivityWatch](https://activitywatch.net/) for capture (window titles,
-app names, browser URLs, and AFK/idle detection). It pulls those events, subtracts idle
-time, extracts signals (git repo names from titles, domains from URLs), and classifies
-each event into a project using **ordered deterministic rules first**, with an optional
-**LLM fallback** for anything ambiguous. Whatever's left lands in an **Unclassified**
-bucket you triage in the dashboard or the terminal.
-
----
-
-## Quickstart (≤10 minutes)
-
-```sh
-# 1. Install
-brew install blakep-lms/tap/tally      # or: go install github.com/blakep-lms/tally@latest
-
-# 2. Set up — detects/points at ActivityWatch, creates ~/.tally
-tally init
-
-# 3. Define your projects
-tally projects add "SecureAI Experts" --type billable --client "SecureAI"
-tally projects add "InstallProsOS"    --type billable
-tally projects add "Internal — Death Star" --type internal
-
-# 4. Add a few rules (see the cookbook below)
-tally rules add "secureai"     --project "SecureAI Experts" --field repo
-tally rules add "installpros"  --project "InstallProsOS"    --field url
-tally rules add "Slack"        --project "Internal — Death Star" --field app
-
-# 5. Pull activity, classify it, and look
-tally sync
-tally classify
-tally ui                                # opens the dashboard in your browser
+```bash
+git clone https://github.com/blakep-lms/Tally.git
+cd Tally
+go build -o ./dist/tally .
+./dist/tally init
+./dist/tally status
 ```
 
-You now have classified time on a dashboard. Everything after this is refinement:
-triage the Unclassified queue, and every triage decision can be saved as a rule so it
-never comes back.
+Tally stores its database and configuration under `~/.tally` by default. Set `TALLY_HOME` to use another directory.
 
-If you don't have ActivityWatch yet, install it from
-[activitywatch.net](https://activitywatch.net/), start it, and re-run `tally status` —
-it will report `activitywatch connected`.
+## Core workflow
 
----
+```bash
+# Define work
+./dist/tally items add "Client launch" --kind project --context ACME
+./dist/tally items add "Tally" --kind product --context LMS
+./dist/tally items add "Publish weekly" --kind goal
+./dist/tally items add "Operations" --kind other
 
-## CLI
+# Capture and classify
+./dist/tally sync --days 1
+./dist/tally rules add "tally" --item Tally --field title --match contains
+./dist/tally classify
+./dist/tally classify --interactive
 
-Every command supports `--json` for machine consumption.
+# Inspect exact time
+./dist/tally report --today
+./dist/tally report --week
+./dist/tally report --period custom --from 2026-07-01 --to 2026-07-31 --timezone America/New_York
 
-| Command | What it does |
-|---|---|
-| `tally init` | Create `~/.tally`, write config, check for ActivityWatch |
-| `tally status` | Capture connectivity + tracked-hours snapshot |
-| `tally sync` | Pull events from the capture provider (idempotent) |
-| `tally projects add\|list\|done` | Create, list, and archive projects |
-| `tally rules add\|list\|test\|delete` | Manage classification rules; `test` is a dry-run |
-| `tally classify [--llm] [-i]` | Run rules (and optional LLM); `-i` triages interactively |
-| `tally report [--week\|--today\|--all] [--format md\|csv\|json]` | Per-project hours |
-| `tally ui` | Serve the local dashboard |
-| `tally mcp` | Run the MCP server (stdio) for agents |
-
-Examples:
-
-```sh
-tally report --week                     # markdown, paste straight into billing
-tally report --week --format csv > week.csv
-tally sync --since 2026-07-01 --until 2026-07-07
-tally rules test "github.com/acme" --field url    # what would this rule catch?
-tally classify --interactive            # triage the queue one event at a time
+# Lifecycle
+./dist/tally items done Tally
+./dist/tally items reactivate Tally
 ```
 
----
+Use `tally --json` for machine-readable command output.
 
-## Rule cookbook
+## Dashboard
 
-Rules match on one of four fields — `app`, `title`, `url`, `repo` — with one of three
-match kinds: `contains` (default, case-insensitive), `equals`, or `regex`. Rules are
-ordered by priority (lower first); **first match wins**.
-
-```sh
-# Attribute a client's git repo to their project
-tally rules add "acme-web" --project "ACME" --field repo
-
-# Anything on the client's domain is theirs
-tally rules add "acme.com" --project "ACME" --field url
-
-# A specific desktop app is internal ops
-tally rules add "Slack" --project "Internal" --field app
-
-# A window-title keyword, using a regex, evaluated before broader rules
-tally rules add "^Figma.*ACME" --project "ACME" --field title --match regex --priority 10
-
-# Not sure what a rule will catch? Dry-run it first.
-tally rules test "acme" --field repo
+```bash
+./dist/tally ui
 ```
 
-**Triage generates rules for you.** In the dashboard's Triage view (or `tally classify -i`),
-assigning an event with "make a rule" ticked creates a `contains` rule from that event's
-chosen field — so similar time classifies automatically from then on.
+The embedded dashboard provides work-item lifecycle, synchronization, triage and correction history, rules, exact reports, billing profiles, finalized snapshots, and downloads. It binds to `127.0.0.1:7654` by default, performs an immediate sync/classification pass, and repeats every 60 seconds unless configured otherwise.
 
----
+Tally refuses non-loopback dashboard addresses.
 
-## Optional: LLM-assisted classification
+## Privacy model
 
-Ambiguous window titles that no rule catches can be bucketed by an Anthropic model
-instead of piling up in Unclassified. It's **off by default**, batched, and cached (the
-same ambiguous signal is never sent twice).
+Privacy filtering occurs before prohibited persistence and before optional LLM transmission.
 
-Enable it by editing `~/.tally/config.toml`:
+Default protections include:
 
-```toml
-llm_enabled = true
-llm_model = "claude-opus-4-8"
-# anthropic_api_key = "sk-ant-..."   # or set ANTHROPIC_API_KEY in your environment
-```
+- Password managers, keychain tools, and configured ignored applications are excluded.
+- Private/incognito browser windows are excluded.
+- URL credentials, query strings, and fragments are always removed.
+- URL paths are removed by default; only the origin is retained.
+- Optional LLM classification receives minimized signals, including URL host rather than the raw URL.
+- LLM classification is disabled by default and requires both configuration and a user-provided API key.
+- Low-confidence or invalid LLM answers remain unclassified.
+- Cached classifications cannot assign completed or unavailable work items.
 
-Then:
-
-```sh
-tally classify --llm
-```
-
-Your API key and the classification calls are the **only** network activity Tally ever
-initiates, and only when you turn this on.
-
----
-
-## Agent access (MCP)
-
-`tally mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server over
-stdio that exposes the full tool set with parity to the CLI: `status`, `list_projects`,
-`add_project`, `mark_project_done`, `list_rules`, `add_rule`, `test_rule`, `delete_rule`,
-`list_unclassified`, `assign_event`, `classify`, `sync`, and `report`.
-
-Register it in Claude Desktop (`claude_desktop_config.json`) or Claude Code
-(`~/.claude.json`):
-
-```json
-{
-  "mcpServers": {
-    "tally": { "command": "tally", "args": ["mcp"] }
-  }
-}
-```
-
-An agent can then, without a single human click: list your projects, pull this week's
-hours, classify unclassified events, add a rule, mark a project done, and generate a
-report — and the results match what you see in the UI.
-
----
-
-## The dashboard
-
-`tally ui` serves a local, offline dashboard (default `http://127.0.0.1:7654`):
-
-- **Overview** — every project as a card with total hours, a billable/internal split, and
-  today/week/all-time toggles.
-- **Triage** — the Unclassified queue; assign in one click, optionally saving a rule.
-- **Reports** — pick a range, copy Markdown or CSV.
-- **Rules** — add and remove rules.
-
-Mark a project **done** from its card: it archives, its rules deactivate so no new time
-lands in it, and its hours stay in historical reports.
-
----
-
-## Privacy
-
-Tally is local-first and single-user by design.
-
-- All capture data lives in `~/.tally/tally.db` on your machine.
-- No telemetry. No accounts. No cloud sync.
-- The **only** outbound network call Tally ever makes is the optional LLM classification
-  you explicitly enable — and it goes to Anthropic with your own API key.
-
----
-
-## Configuration
-
-`~/.tally/config.toml`:
+Configuration lives at `~/.tally/config.toml`:
 
 ```toml
 activitywatch_url = "http://localhost:5600"
-ui_addr           = "127.0.0.1:7654"
-llm_enabled       = false
-llm_model         = "claude-opus-4-8"
-# anthropic_api_key = "sk-ant-..."
+ui_addr = "127.0.0.1:7654"
+auto_sync_interval_seconds = 60
+ignored_apps = ["1Password", "Bitwarden", "KeePassXC", "Keychain Access", "Passwords", "Secrets"]
+store_url_paths = false
+
+llm_enabled = false
+llm_model = "claude-opus-4-8"
+llm_min_confidence = 0.80
+# anthropic_api_key = "[REDACTED]"
+# http_api_token = "[REDACTED]"
 ```
 
-Set `TALLY_HOME` to relocate the data directory (handy for testing).
+Environment fallbacks:
 
----
+- `ANTHROPIC_API_KEY`
+- `TALLY_API_TOKEN`
+- `TALLY_HOME`
 
-## Build from source
+Do not commit real credentials or a populated Tally home directory.
 
-```sh
-git clone https://github.com/blakep-lms/tally
-cd tally
-make build      # -> ./tally
-make test
+## Exact time and ActivityWatch synchronization
+
+Tally queries ActivityWatch with escaped bucket IDs, explicit half-open `[from,to)` boundaries, and no result limit. Bucket types are authoritative; ID prefixes are fallback compatibility only.
+
+Partially overlapping events are clipped to the requested range. AFK periods produce real active fragments at their original timestamps rather than shortening an event from one edge. Repeated synchronization is idempotent and atomically reconciles changed fragment groups.
+
+Rule and manual assignments produce before/after audit records. Corrections update classification, not source capture data.
+
+## Optional billing projections
+
+Billing profiles can be global, client/context-specific, or work-item-specific. Resolution order is:
+
+1. Work item
+2. Client/context
+3. Global
+4. Disabled default
+
+```bash
+./dist/tally billing set --enabled --rate-minor 15000 --currency USD --rounding-minutes 15 --period-mode weekly
+./dist/tally billing set --item 2 --enabled --rate-minor 20000 --currency USD --rounding-minutes 15 --period-mode monthly
+./dist/tally billing show --item 2
+./dist/tally report --week --billing
 ```
 
-Tally is a single static Go binary (pure-Go SQLite, no cgo). See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+Rates and amounts use integer minor units. Currency output is formatted without binary floating point.
 
----
+For each nonzero billable work-item subtotal in the selected period:
 
-## Non-goals (v1)
+```text
+rounded_seconds = ceil(exact_seconds / increment_seconds) * increment_seconds
+```
 
-Invoicing/rates, team sync, Windows/Linux, mobile, and a custom capture daemon are all
-out of scope for v1 — the code stays portable, but v1 targets macOS + ActivityWatch.
+Rounding is always upward in v1 and occurs exactly once per work item per period. It never changes events, intervals, classifications, corrections, or exact report totals. Non-billable work is exact and unrounded.
+
+Supported periods:
+
+- Weekly
+- Biweekly
+- Semimonthly
+- Monthly
+- Final work-item period
+- Custom half-open range
+
+Timezone and daylight-saving boundaries use local calendar arithmetic, not fixed-duration assumptions.
+
+## Reports, exports, and snapshots
+
+```bash
+./dist/tally report --month --billing --format markdown
+./dist/tally report --month --billing --format csv
+./dist/tally report --month --billing --format json
+./dist/tally report --month --billing --finalize --label "July final"
+./dist/tally billing snapshots list
+./dist/tally billing snapshots show 1
+```
+
+Reports display exact and adjusted values separately. Mixed currencies remain separate totals.
+
+Finalized snapshots are immutable stored payloads. Each snapshot records its label, effective period and half-open bounds, timezone, exact and rounded duration, increment, upward policy, rate, currency, amount, and report/classification state represented at finalization time. Later profile or classification changes do not rewrite it.
+
+## Local HTTP API security
+
+With no configured token, loopback reads remain frictionless and every mutation still requires an authenticated browser session plus CSRF. When `http_api_token` or `TALLY_API_TOKEN` is set, the token gates session issuance and every API read and write.
+
+Browser writes require:
+
+- Server-issued HttpOnly session cookie; with a configured token, the browser exchanges the bearer once to obtain it
+- Same-origin `Origin` or `Referer`
+- `X-Tally-CSRF` header
+- `application/json`
+
+Non-browser local clients use `Authorization: Bearer <token>` when a token is configured. Tokens in query strings are not accepted. API requests with a non-loopback host are rejected, and the CLI refuses non-loopback listeners.
+
+Primary endpoint groups:
+
+- `/api/status`, `/api/sync`
+- `/api/items` and compatibility `/api/work-items`, `/api/projects`
+- `/api/rules`, `/api/unclassified`, `/api/classify`, `/api/audit`
+- `/api/report`
+- `/api/billing/profile`, `/api/billing/snapshots`
+
+## MCP
+
+```bash
+./dist/tally mcp
+```
+
+The MCP server uses the official `github.com/modelcontextprotocol/go-sdk` and stdio transport. Tools cover work items, compatibility projects, rules, unclassified triage, corrections, synchronization, reports, billing profiles, report finalization, and snapshots. The integration suite uses the SDK’s in-memory client/server transport rather than testing a custom JSON-RPC loop.
+
+## Architecture
+
+```text
+ActivityWatch
+    |
+    v
+privacy filter -> exact capture fragments -> SQLite source events
+                                            |
+                                            v
+                              rules -> optional LLM -> corrections
+                                            |
+                                            v
+                                  exact work-item reports
+                                            |
+                                            +-> optional billing projection
+                                            |       |
+                                            |       +-> immutable snapshot
+                                            |
+                      CLI / secured loopback API / dashboard / MCP
+```
+
+Important boundaries:
+
+- Capture, privacy, classification, correction history, lifecycle, reporting, and billing remain separate concerns.
+- SQLite is the local system of record.
+- Billing never mutates source truth.
+- Tally does not collect payments, calculate payroll/payables, apply taxes, perform accounting, or deliver legal invoices.
+
+## Development and verification
+
+```bash
+test -z "$(gofmt -l .)"
+go test ./... -count=1
+go test -race ./... -count=1
+go vet ./...
+go mod verify
+go build ./...
+git diff --check
+```
+
+CI runs formatting, vet, unit, race, build, and GoReleaser configuration checks on Go 1.25.
+
+For the complete migration, privacy, API, browser, MCP, billing, and artifact acceptance procedure, see [ACCEPTANCE.md](ACCEPTANCE.md).
+
+## Private macOS dogfood
+
+After building Tally and installing ActivityWatch, install the dogfood helpers:
+
+```bash
+install -m 755 tally ~/.local/bin/tally
+install -m 755 scripts/tally-dogfood ~/.local/bin/tally-dogfood
+tally-dogfood start
+```
+
+Use `tally-dogfood status`, `sync`, `open`, `restart`, `logs`, or `stop` to operate the local stack. The dashboard binds to `127.0.0.1:7760`; obtain its one-time bearer value with `tally-dogfood token`. The token is exchanged for a 12-hour HttpOnly browser session and is not persisted by the dashboard.
+
+The macOS helper is intentionally a private-dogfood convenience rather than a release daemon. Run `tally-dogfood start` after a reboot. Public release remains a separate acceptance decision.
+
+## Releases and community
+
+- [CHANGELOG.md](CHANGELOG.md) records user-visible changes.
+- [SECURITY.md](SECURITY.md) explains private vulnerability reporting and Tally’s security boundary.
+- [CONTRIBUTING.md](CONTRIBUTING.md) covers development contributions.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) defines community expectations.
+
+Pushing a `v*` tag runs the release workflow and GoReleaser. The repository must first have a `HOMEBREW_TAP_GITHUB_TOKEN` secret with write access to `blakep-lms/homebrew-tap`. During private dogfood, validate artifacts without publishing:
+
+```bash
+goreleaser release --snapshot --clean
+```
 
 ## License
 
-[MIT](LICENSE) © Blake / Linear Marketing Solutions
+MIT. See [LICENSE](LICENSE).

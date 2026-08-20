@@ -1,0 +1,188 @@
+#!/bin/bash
+set -euo pipefail
+
+TALLY_BIN="${TALLY_BIN:-$HOME/.local/bin/tally}"
+TALLY_HOME="${TALLY_HOME:-$HOME/.tally}"
+ACTIVITYWATCH_BIN="${ACTIVITYWATCH_BIN:-/Applications/ActivityWatch.app/Contents/MacOS/aw-qt}"
+ACTIVITYWATCH_ROOT="${ACTIVITYWATCH_ROOT:-/Applications/ActivityWatch.app/Contents}"
+TALLY_ADDR="${TALLY_ADDR:-127.0.0.1:7760}"
+AW_URL="http://127.0.0.1:5600"
+TALLY_URL="http://$TALLY_ADDR"
+STATE_DIR="$TALLY_HOME/dogfood"
+TOKEN_FILE="$STATE_DIR/api-token"
+AW_PID_FILE="$STATE_DIR/activitywatch.pid"
+TALLY_PID_FILE="$STATE_DIR/tally-ui.pid"
+AW_LOG="$STATE_DIR/activitywatch.log"
+TALLY_LOG="$STATE_DIR/tally-ui.log"
+
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+
+fail() {
+  echo "$*" >&2
+  exit 1
+}
+
+pid_running() {
+  local file="$1" pid
+  test -f "$file" || return 1
+  pid=$(cat "$file")
+  test -n "$pid" && kill -0 "$pid" 2>/dev/null
+}
+
+http_code() {
+  curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || true
+}
+
+activitywatch_ready() {
+  test "$(http_code "$AW_URL/api/0/info")" = "200" &&
+    pgrep -f "^${ACTIVITYWATCH_ROOT}/MacOS/aw-server([[:space:]]|$)" >/dev/null &&
+    pgrep -f "^${ACTIVITYWATCH_ROOT}/MacOS/aw-watcher-window([[:space:]]|$)" >/dev/null &&
+    pgrep -f "^${ACTIVITYWATCH_ROOT}/MacOS/aw-watcher-afk([[:space:]]|$)" >/dev/null
+}
+
+stop_activitywatch() {
+  pkill -TERM -f "^${ACTIVITYWATCH_ROOT}/" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    pgrep -f "^${ACTIVITYWATCH_ROOT}/" >/dev/null || break
+    sleep 0.25
+  done
+  pkill -KILL -f "^${ACTIVITYWATCH_ROOT}/" 2>/dev/null || true
+  rm -f "$AW_PID_FILE"
+}
+
+start_activitywatch() {
+  if activitywatch_ready; then
+    echo "ActivityWatch already ready"
+    return
+  fi
+  stop_activitywatch
+  test -x "$ACTIVITYWATCH_BIN" || fail "ActivityWatch is not installed at $ACTIVITYWATCH_BIN"
+  nohup "$ACTIVITYWATCH_BIN" --no-gui >>"$AW_LOG" 2>&1 </dev/null &
+  echo $! >"$AW_PID_FILE"
+  for _ in $(seq 1 45); do
+    if activitywatch_ready; then
+      echo "ActivityWatch ready (server, window watcher, AFK watcher)"
+      return
+    fi
+    pid_running "$AW_PID_FILE" || break
+    sleep 1
+  done
+  fail "ActivityWatch failed to become fully ready; see $AW_LOG"
+}
+
+ensure_tally() {
+  test -x "$TALLY_BIN" || fail "Tally is not installed at $TALLY_BIN"
+  if test ! -f "$TALLY_HOME/config.toml"; then
+    "$TALLY_BIN" init
+  fi
+  if test ! -f "$TOKEN_FILE"; then
+    umask 077
+    openssl rand -hex 32 >"$TOKEN_FILE"
+  fi
+  chmod 600 "$TOKEN_FILE"
+}
+
+start_tally() {
+  local code
+  code=$(http_code "$TALLY_URL/api/session")
+  if test "$code" = "401" || test "$code" = "200"; then
+    echo "Tally already ready (HTTP $code)"
+    return
+  fi
+  if pid_running "$TALLY_PID_FILE"; then
+    fail "Tally process exists but its API is not ready; see $TALLY_LOG"
+  fi
+  TALLY_API_TOKEN=$(cat "$TOKEN_FILE") nohup "$TALLY_BIN" ui --addr "$TALLY_ADDR" --no-open >>"$TALLY_LOG" 2>&1 </dev/null &
+  echo $! >"$TALLY_PID_FILE"
+  for _ in $(seq 1 45); do
+    code=$(http_code "$TALLY_URL/api/session")
+    if test "$code" = "401"; then
+      echo "Tally ready (HTTP 401 token enforcement)"
+      return
+    fi
+    pid_running "$TALLY_PID_FILE" || break
+    sleep 1
+  done
+  fail "Tally failed to become ready; see $TALLY_LOG"
+}
+
+stop_pid() {
+  local file="$1" label="$2" pid
+  if ! pid_running "$file"; then
+    rm -f "$file"
+    echo "$label already stopped"
+    return
+  fi
+  pid=$(cat "$file")
+  kill "$pid"
+  for _ in $(seq 1 20); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.25
+  done
+  kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+  rm -f "$file"
+  echo "$label stopped"
+}
+
+stop_all() {
+  stop_pid "$TALLY_PID_FILE" "Tally"
+  stop_activitywatch
+  echo "ActivityWatch stopped"
+}
+
+show_status() {
+  local aw tally
+  aw=$(http_code "$AW_URL/api/0/info")
+  tally=$(http_code "$TALLY_URL/api/session")
+  if activitywatch_ready; then
+    printf 'ActivityWatch API: HTTP %s (watchers ready)\n' "${aw:-000}"
+  else
+    printf 'ActivityWatch API: HTTP %s (watchers incomplete)\n' "${aw:-000}"
+  fi
+  printf 'Tally API: HTTP %s (401 is healthy token enforcement)\n' "${tally:-000}"
+  "$TALLY_BIN" status || true
+}
+
+case "${1:-}" in
+  start)
+    start_activitywatch
+    ensure_tally
+    start_tally
+    show_status
+    echo "Dashboard: $TALLY_URL"
+    ;;
+  stop)
+    stop_all
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  status)
+    ensure_tally
+    show_status
+    ;;
+  sync)
+    ensure_tally
+    "$TALLY_BIN" sync
+    "$TALLY_BIN" classify
+    "$TALLY_BIN" status
+    ;;
+  token)
+    ensure_tally
+    cat "$TOKEN_FILE"
+    echo
+    ;;
+  open)
+    open "$TALLY_URL"
+    ;;
+  logs)
+    echo "ActivityWatch: $AW_LOG"
+    echo "Tally: $TALLY_LOG"
+    ;;
+  *)
+    echo 'Usage: tally-dogfood {start|stop|restart|status|sync|token|open|logs}' >&2
+    exit 2
+    ;;
+esac

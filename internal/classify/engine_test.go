@@ -46,8 +46,8 @@ func TestEngineMatchKinds(t *testing.T) {
 }
 
 func TestSignalKeyStable(t *testing.T) {
-	a := SignalOf(model.Event{App: "Code", Title: "T", URL: "U", Repo: "R"})
-	b := Signal{App: "code", Title: "t", URL: "u", Repo: "r"}
+	a := SignalOf(model.Event{App: "Code", Title: "T", URL: "https://Example.COM/path?secret=x", Repo: "R"})
+	b := Signal{App: "code", Title: "t", URL: "example.com", Repo: "r"}
 	if a.Key() != b.Key() {
 		t.Error("signal key should be case-insensitive and stable")
 	}

@@ -3,111 +3,109 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tally</title>
+  <title>Tally dashboard</title>
   <link rel="stylesheet" href="style.css" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%B1%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath fill='%23c65f37' d='M47 8h6v20h-6zM47 72h6v20h-6zM8 47h20v6H8zM72 47h20v6H72z'/%3E%3Ccircle cx='50' cy='50' r='22' fill='none' stroke='%231d1c1a' stroke-width='7'/%3E%3C/svg%3E" />
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="brand"><span class="mark">⏱</span> Tally</div>
+  <a class="skip" href="#main">Skip to dashboard</a>
+  <aside class="sidebar" aria-label="Tally sections">
+    <div class="brand" aria-label="Tally"><span class="dial" aria-hidden="true"></span><span>Tally</span></div>
     <nav>
-      <button class="nav-item active" data-view="overview">Overview</button>
-      <button class="nav-item" data-view="triage">Triage <span class="badge" id="triage-badge" hidden>0</span></button>
-      <button class="nav-item" data-view="reports">Reports</button>
-      <button class="nav-item" data-view="rules">Rules</button>
+      <button class="nav-item active" data-view="overview" type="button">Overview</button>
+      <button class="nav-item" data-view="items" type="button">Work items</button>
+      <button class="nav-item" data-view="triage" type="button">Triage <span class="badge" id="triage-badge" hidden>0</span></button>
+      <button class="nav-item" data-view="reports" type="button">Reports</button>
+      <button class="nav-item" data-view="billing" type="button">Billing</button>
+      <button class="nav-item" data-view="rules" type="button">Rules</button>
+      <button class="nav-item" data-view="snapshots" type="button">Snapshots</button>
     </nav>
     <div class="sidebar-foot">
-      <div id="provider-status" class="status-dot">checking…</div>
-      <button id="btn-sync" class="ghost">Sync</button>
-      <button id="btn-classify" class="ghost">Classify</button>
+      <div id="session-status" class="status-dot">booting session…</div>
+      <div id="provider-status" class="status-dot">checking provider…</div>
+      <button id="btn-sync" class="ghost" type="button">Sync last 24h</button>
+      <button id="btn-classify" class="ghost" type="button">Classify</button>
     </div>
   </aside>
 
-  <main class="content">
-    <div id="toast" class="toast" hidden></div>
+  <main id="main" class="content" tabindex="-1">
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-    <!-- Overview -->
     <section id="view-overview" class="view">
-      <header class="view-head">
-        <h1>Overview</h1>
-        <div class="range-tabs" data-target="overview">
-          <button data-range="today">Today</button>
-          <button data-range="week" class="active">This week</button>
-          <button data-range="all">All time</button>
-        </div>
-      </header>
+      <header class="view-head"><div><h1>Time overview</h1><p class="sub">A current read on exact tracked time.</p></div></header>
+      <div class="toolbar"><label>Range <select id="overview-range"><option value="today">Today</option><option value="week" selected>This week</option><option value="month">This month</option><option value="all">All time</option></select></label><button id="overview-refresh" class="ghost" type="button">Refresh</button></div>
       <div class="stat-row" id="stat-row"></div>
-      <div class="cards" id="project-cards"></div>
+      <div id="overview-list" class="cards"></div>
     </section>
 
-    <!-- Triage -->
+    <section id="view-items" class="view" hidden>
+      <header class="view-head"><div><h1>Work items</h1><p class="sub">Create, edit, complete, and reactivate project, product, goal, or other work.</p></div></header>
+      <form id="item-form" class="panel form-grid">
+        <input type="hidden" id="item-id" />
+        <label>Name<input id="item-name" required autocomplete="off" /></label>
+        <label>Kind<select id="item-kind"><option>project</option><option>product</option><option>goal</option><option>other</option></select></label>
+        <label>Context/client<input id="item-context" /></label>
+        <label class="wide">Description<textarea id="item-description" rows="3"></textarea></label>
+        <div class="wide actions"><button id="item-submit" type="submit">Create item</button><button id="item-cancel" class="ghost" type="button">Clear form</button></div>
+      </form>
+      <div class="toolbar"><label>Status <select id="item-status"><option value="">All</option><option value="active" selected>Active</option><option value="done">Done</option></select></label><button id="items-refresh" class="ghost" type="button">Refresh</button></div>
+      <div id="items-list" class="stack"></div>
+    </section>
+
     <section id="view-triage" class="view" hidden>
-      <header class="view-head">
-        <h1>Triage</h1>
-        <p class="sub">Assign unclassified time. Tick “make a rule” so it never comes back.</p>
-      </header>
-      <div id="triage-list" class="triage-list"></div>
+      <header class="view-head"><div><h1>Triage</h1><p class="sub">Assign unclassified events; optionally create a matching rule.</p></div></header>
+      <div class="toolbar"><label>Limit <input id="triage-limit" type="number" min="1" max="500" value="100" /></label><button id="triage-refresh" class="ghost" type="button">Refresh</button></div>
+      <div id="triage-list" class="stack"></div>
+      <header class="view-head section-head"><div><h2>Correction history</h2><p class="sub">Durable attribution changes, including reconciliation carry-forwards and conflicts.</p></div></header>
+      <div id="audit-list" class="stack"></div>
     </section>
 
-    <!-- Reports -->
     <section id="view-reports" class="view" hidden>
-      <header class="view-head">
-        <h1>Reports</h1>
-        <div class="range-tabs" data-target="reports">
-          <button data-range="today">Today</button>
-          <button data-range="week" class="active">This week</button>
-          <button data-range="all">All time</button>
-        </div>
-      </header>
-      <div class="report-actions">
-        <button id="copy-md" class="ghost">Copy Markdown</button>
-        <button id="copy-csv" class="ghost">Copy CSV</button>
-      </div>
+      <header class="view-head"><div><h1>Reports</h1><p class="sub">Exact and rounded period summaries with currency-separated totals.</p></div></header>
+      <form id="report-form" class="panel form-grid compact">
+        <label>Period<select id="report-period"><option value="weekly">weekly</option><option value="biweekly">biweekly</option><option value="semimonthly">semimonthly</option><option value="monthly">monthly</option><option value="custom">custom</option><option value="final">final</option></select></label>
+        <label>Timezone<input id="report-timezone" value="UTC" /></label>
+        <label>Final item<select id="report-item"></select></label>
+        <label>From<input id="report-from" type="date" /></label>
+        <label>To<input id="report-to" type="date" /></label>
+        <label class="check"><input id="report-billing" type="checkbox" checked /> Include billing</label>
+        <div class="wide actions"><button type="submit">Run report</button><button id="copy-md" class="ghost" type="button">Copy Markdown</button><button id="copy-csv" class="ghost" type="button">Copy CSV</button><button id="finalize-report" class="ghost" type="button">Finalize snapshot</button></div>
+      </form>
+      <div id="report-summary" class="stat-row"></div>
       <div id="report-table"></div>
     </section>
 
-    <!-- Rules -->
-    <section id="view-rules" class="view" hidden>
-      <header class="view-head"><h1>Rules</h1></header>
-      <form id="rule-form" class="rule-form">
-        <select id="rule-project" required></select>
-        <select id="rule-field">
-          <option value="title">title</option>
-          <option value="app">app</option>
-          <option value="url">url</option>
-          <option value="repo">repo</option>
-        </select>
-        <select id="rule-match">
-          <option value="contains">contains</option>
-          <option value="equals">equals</option>
-          <option value="regex">regex</option>
-        </select>
-        <input id="rule-pattern" placeholder="pattern" required />
-        <button type="submit">Add rule</button>
+    <section id="view-billing" class="view" hidden>
+      <header class="view-head"><div><h1>Billing profiles</h1><p class="sub">Edit inherited global, client, or work-item billing policy.</p></div></header>
+      <form id="billing-form" class="panel form-grid compact">
+        <label>Scope<select id="bill-scope"><option value="global">global</option><option value="client">client</option><option value="work_item">work item</option></select></label>
+        <label>Client key<input id="bill-client" /></label>
+        <label>Work item<select id="bill-item"></select></label>
+        <label class="check"><input id="bill-enabled" type="checkbox" /> Enabled</label>
+        <label>Rate minor<input id="bill-rate" type="number" min="0" value="0" /></label>
+        <label>Currency<input id="bill-currency" maxlength="3" value="USD" /></label>
+        <label>Increment minutes<input id="bill-increment" type="number" min="1" value="15" /></label>
+        <label>Period<select id="bill-period"><option value="custom">custom</option><option value="weekly">weekly</option><option value="biweekly">biweekly</option><option value="semimonthly">semimonthly</option><option value="monthly">monthly</option><option value="final">final</option></select></label>
+        <div class="wide actions"><button type="button" id="load-billing" class="ghost">Load profile</button><button type="submit">Save profile</button></div>
       </form>
-      <div id="rules-list" class="rules-list"></div>
+      <div id="billing-result" class="panel muted"></div>
+    </section>
+
+    <section id="view-rules" class="view" hidden>
+      <header class="view-head"><div><h1>Rules</h1><p class="sub">First match wins; done work items cannot receive new rules.</p></div></header>
+      <form id="rule-form" class="panel rule-form">
+        <select id="rule-project" aria-label="Work item" required></select><select id="rule-field" aria-label="Signal field"><option>title</option><option>app</option><option>url</option><option>repo</option></select><select id="rule-match" aria-label="Match type"><option>contains</option><option>equals</option><option>regex</option></select><input id="rule-priority" type="number" value="100" aria-label="Priority" /><label class="rule-pattern-label">Pattern<input id="rule-pattern" required /></label><button type="submit">Add rule</button>
+      </form>
+      <div id="rules-list" class="stack"></div>
+    </section>
+
+    <section id="view-snapshots" class="view" hidden>
+      <header class="view-head"><div><h1>Snapshots</h1><p class="sub">Frozen report JSON created from finalized reports.</p></div></header>
+      <div class="toolbar"><button id="snap-refresh" class="ghost" type="button">Refresh</button></div>
+      <div id="snapshots-list" class="stack"></div>
+      <pre id="snapshot-detail" class="json-box" tabindex="0"></pre>
     </section>
   </main>
-
-  <!-- Add project dialog -->
-  <dialog id="project-dialog">
-    <form method="dialog" id="project-form">
-      <h2>New project</h2>
-      <label>Name<input id="p-name" required /></label>
-      <label>Type
-        <select id="p-type">
-          <option value="billable">billable</option>
-          <option value="internal">internal</option>
-        </select>
-      </label>
-      <label>Client (optional)<input id="p-client" /></label>
-      <div class="dialog-actions">
-        <button value="cancel" class="ghost">Cancel</button>
-        <button value="ok" id="p-submit">Create</button>
-      </div>
-    </form>
-  </dialog>
-
   <script src="app.js"></script>
 </body>
 </html>

@@ -16,10 +16,20 @@ type Config struct {
 	LLMEnabled bool `toml:"llm_enabled"`
 	// LLMModel is the Anthropic model used for classification.
 	LLMModel string `toml:"llm_model"`
+	// LLMMinConfidence is the minimum model-reported confidence accepted.
+	LLMMinConfidence float64 `toml:"llm_min_confidence"`
 	// AnthropicAPIKey is the BYO key. Empty means read ANTHROPIC_API_KEY env.
 	AnthropicAPIKey string `toml:"anthropic_api_key,omitempty"`
 	// UIAddr is the address the local dashboard binds to.
 	UIAddr string `toml:"ui_addr"`
+	// IgnoredApps are filtered before any event is persisted or sent to an LLM.
+	IgnoredApps []string `toml:"ignored_apps"`
+	// StoreURLPaths opts into retaining URL paths. The default stores origins only.
+	StoreURLPaths bool `toml:"store_url_paths"`
+	// HTTPAPIToken protects /api/* when set. Empty keeps the localhost UI frictionless.
+	HTTPAPIToken string `toml:"http_api_token,omitempty"`
+	// AutoSyncIntervalSeconds runs dashboard live sync on this cadence when > 0.
+	AutoSyncIntervalSeconds int `toml:"auto_sync_interval_seconds"`
 }
 
 // Defaults returns the zero-config baseline.
@@ -28,7 +38,13 @@ func Defaults() Config {
 		ActivityWatchURL: "http://localhost:5600",
 		LLMEnabled:       false,
 		LLMModel:         "claude-opus-4-8",
+		LLMMinConfidence: 0.80,
 		UIAddr:           "127.0.0.1:7654",
+		IgnoredApps: []string{
+			"1Password", "Bitwarden", "KeePassXC", "Keychain Access", "Passwords", "Secrets",
+		},
+		StoreURLPaths:           false,
+		AutoSyncIntervalSeconds: 60,
 	}
 }
 
@@ -104,4 +120,12 @@ func (c Config) APIKey() string {
 		return c.AnthropicAPIKey
 	}
 	return os.Getenv("ANTHROPIC_API_KEY")
+}
+
+// APIToken returns the configured dashboard API bearer token, or env fallback.
+func (c Config) APIToken() string {
+	if c.HTTPAPIToken != "" {
+		return c.HTTPAPIToken
+	}
+	return os.Getenv("TALLY_API_TOKEN")
 }

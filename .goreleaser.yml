@@ -40,13 +40,13 @@ changelog:
       - "^test:"
       - "^chore:"
 
-# Homebrew tap. Point this at your tap repo before the first `brew install`.
-# GoReleaser v2 distributes CLI binaries as Homebrew casks.
+# GoReleaser v2 distributes CLI binaries as Homebrew casks. Tag releases
+# require HOMEBREW_TAP_GITHUB_TOKEN with write access to this tap repository.
 homebrew_casks:
   - name: tally
     repository:
       owner: blakep-lms
       name: homebrew-tap
     homepage: "https://github.com/blakep-lms/tally"
-    description: "Automatic, local-first time tracking for multi-project builders and their agents."
+    description: "Automatic, local-first time tracking across projects, products, goals, and other work."
     license: "MIT"
