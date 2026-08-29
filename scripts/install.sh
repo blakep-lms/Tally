@@ -4,7 +4,7 @@
 # Downloads Tally to ~/.local/lib/tally, symlinks `tally` onto PATH, runs first-run setup.
 set -euo pipefail
 
-TALLY_REPO="${TALLY_REPO:-https://raw.githubusercontent.com/blakep-lms/Tally/efc0d2a}"
+TALLY_REPO="${TALLY_REPO:-https://raw.githubusercontent.com/blakep-lms/Tally/28bb7d8}"
 INSTALL_DIR="$HOME/.local/lib/tally"
 BIN_DIR="$HOME/.local/bin"
 
@@ -13,7 +13,7 @@ mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
 FILES="tally.py watch.py store.py tally_setup.py tally_ctl.py tally_menu_v2.py
        tally_dashboard.py tally_export.py timeline.py suggest_rules.py doctor.py
-       bucket_server.py bucket-editor.html"
+       bucket_server.py bucket-editor.html install_menubar.py"
 
 for f in $FILES; do
   curl -fsSL "$TALLY_REPO/scripts/$f" -o "$INSTALL_DIR/$f"
