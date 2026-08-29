@@ -102,8 +102,10 @@ def setup_timer() -> None:
     if yesno("  Show the timer in the menu bar?", default=True):
         if not os.path.exists(VENV_PY):
             print(f"\n  {DIM}Installing the timer runtime…{RESET}")
-            subprocess.run(["python3", "-m", "venv", VENV_PY])
-            subprocess.run([VENV_PY, "-m", "pip", "install", "--quiet", "pyobjc-framework-Cocoa"])
+            venv_dir = os.path.dirname(os.path.dirname(VENV_PY))  # ~/.tally/menubar-venv
+            subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
+            subprocess.run([VENV_PY, "-m", "pip", "install", "--quiet", "pyobjc-framework-Cocoa"],
+                           check=True)
         # Ensure watcher + menu app run.
         for py, script in (("python3", WATCH), (VENV_PY, MENU)):
             subprocess.Popen([py, script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
