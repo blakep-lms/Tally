@@ -52,7 +52,7 @@ only permission; everything else is local.
 
 ## Project focus
 
-`tally bucket start "COLDBLOOD"` makes Tally count only that bucket — anything
+`tally bucket start "Client A"` makes Tally count only that bucket — anything
 else you touch shows as `Other`, so the timer reflects exactly the project you
 said you were working on. `tally bucket stop` returns to full tracking.
 

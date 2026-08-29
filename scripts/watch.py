@@ -22,16 +22,9 @@ CONFIG = os.path.expanduser("~/.tally/buckets.json")
 
 DEFAULT_CONFIG = {
     "rules": [
-        {"pattern": "Installation Pros", "bucket": "Installation Pros"},
-        {"pattern": "Field Ops OS", "bucket": "Installation Pros"},
-        {"pattern": "Housecall Pro", "bucket": "Installation Pros"},
-        {"pattern": "Secure Automation", "bucket": "Installation Pros"},
-        {"pattern": "COLDBLOOD", "bucket": "COLDBLOOD"},
-        {"pattern": "Tattoo", "bucket": "COLDBLOOD"},
-        {"pattern": "Linea", "bucket": "LMS"},
-        {"pattern": "Hermes", "bucket": "LMS"},
-        {"pattern": "Obsidian", "bucket": "LMS"},
-        {"pattern": "GitHub", "bucket": "LMS"},
+        {"pattern": "Client A", "bucket": "Client A"},
+        {"pattern": "Client B", "bucket": "Client B"},
+        {"pattern": "Personal", "bucket": "Personal"},
     ],
     "default_bucket": "Other",
 }

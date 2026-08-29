@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Tally V2 menu-bar timer."""
 import json
+import os
 import sys
 import time
 from typing import Any
 
 STATUS = "/tmp/tally-status.json"
 DASHBOARD = "http://127.0.0.1:7788"
-TIMELINE = "file:///Users/bpmac2/LMS/scripts/timeline.html"
+TIMELINE = "file://" + os.path.expanduser("~/Library/Application Support/tally/timeline.html")
 AppKit: Any = None
 
 

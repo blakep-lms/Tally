@@ -83,12 +83,12 @@ def setup_buckets(cfg: dict) -> dict:
             existing = []
         else:
             return cfg
-    print(f"  {DIM}Examples: Installation Pros · COLDBLOOD · LMS · Personal{RESET}\n")
+    print(f"  {DIM}Examples: Client A · Client B · Personal{RESET}\n")
     while True:
         name = ask("Bucket name (blank to finish)")
         if not name:
             break
-        titles = ask(f"Titles/patterns for '{name}' (comma-separated, e.g. Field Ops, Housecall)", name)
+        titles = ask(f"Titles/patterns for '{name}' (comma-separated, e.g. Figma, Slack)", name)
         for t in [x.strip() for x in titles.split(",") if x.strip()]:
             rules.append({"pattern": t, "bucket": name})
         print(f"  {GREEN}✓{RESET} '{name}' added with {len([x for x in titles.split(',') if x.strip()])} pattern(s)\n")

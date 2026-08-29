@@ -106,21 +106,21 @@ def print_dashboard(day, tracked, live, status):
 def check():
     day = dt.date.today().isoformat()
     lo, _ = day_bounds(day)
-    cfg = {"rules": [{"pattern": "Hermes", "bucket": "LMS"}], "default_bucket": "Other"}
+    cfg = {"rules": [{"pattern": "Editor", "bucket": "Work"}], "default_bucket": "Other"}
     conn = sqlite3.connect(":memory:")
     # Match production: start is TEXT, bucket column present.
     conn.execute("CREATE TABLE events (app TEXT, title TEXT, start TEXT, duration REAL, bucket TEXT)")
     conn.executemany(
         "INSERT INTO events VALUES (?, ?, ?, ?, ?)",
         [
-            ("Hermes", "Coding", dt.datetime.fromtimestamp(lo + 60).strftime("%Y-%m-%dT%H:%M:%S"), 120, "LMS"),
-            ("Safari", "Reading", dt.datetime.fromtimestamp(lo + 180).strftime("%Y-%m-%dT%H:%M:%S"), 60, None),
-            ("Hermes", "Cross-midnight", dt.datetime.fromtimestamp(lo - 30).strftime("%Y-%m-%dT%H:%M:%S"), 90, "LMS"),
+            ("Editor", "Coding", dt.datetime.fromtimestamp(lo + 60).strftime("%Y-%m-%dT%H:%M:%S"), 120, "Work"),
+            ("Browser", "Reading", dt.datetime.fromtimestamp(lo + 180).strftime("%Y-%m-%dT%H:%M:%S"), 60, None),
+            ("Editor", "Cross-midnight", dt.datetime.fromtimestamp(lo - 30).strftime("%Y-%m-%dT%H:%M:%S"), 90, "Work"),
         ],
     )
     totals = aggregate(conn, cfg, day)
-    assert totals == {"LMS": 180.0, "Other": 60.0}, totals
-    assert live_totals({"bucket": "LMS", "bucket_secs": 30}, day) == {"LMS": 30.0}
+    assert totals == {"Work": 180.0, "Other": 60.0}, totals
+    assert live_totals({"bucket": "Work", "bucket_secs": 30}, day) == {"Work": 30.0}
     assert fmt(3661) == "01:01:01"
     # parse both stored formats
     assert parse_start("2026-08-29T00:00:00") == parse_start("2026-08-29 00:00:00.000 +0000 UTC")

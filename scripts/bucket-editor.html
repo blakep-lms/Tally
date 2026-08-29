@@ -35,7 +35,7 @@
 const API = "/api/buckets";
 function rowHTML(r, i) {
   return `<div class="row" data-i="${i}">
-    <input class="pat" placeholder="pattern, e.g. Housecall Pro" value="${esc(r.pattern || "")}">
+    <input class="pat" placeholder="pattern, e.g. Figma" value="${esc(r.pattern || "")}">
     <input class="buck" placeholder="bucket" value="${esc(r.bucket || "")}">
     <button onclick="rmRow(this)">✕</button>
   </div>`;

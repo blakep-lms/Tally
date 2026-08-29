@@ -94,9 +94,9 @@ if __name__ == "__main__":
     import tempfile
     d = tempfile.mktemp(suffix=".db")
     c = open_db(d)
-    append_segment(c, "2026-08-29T10:00:00", 300.0, "Hermes", "Hermes", "LMS")
+    append_segment(c, "2026-08-29T10:00:00", 300.0, "Editor", "Tally", "Work")
     rows = events_for_day(c, "2026-08-29")
-    assert len(rows) == 1 and rows[0][4] == "LMS", f"expected 1 LMS row, got {rows}"
+    assert len(rows) == 1 and rows[0][4] == "Work", f"expected 1 Work row, got {rows}"
     rows_other = events_for_day(c, "2026-08-28")
     assert len(rows_other) == 0, f"expected 0 rows for other day, got {rows_other}"
     c.close()
