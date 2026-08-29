@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bucket Editor</title>
+<style>
+  body{font:14px -apple-system,sans-serif;max-width:720px;margin:0 auto;padding:24px;color:#1d1c1a}
+  h1{font-size:20px}
+  .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+  .row input{flex:1;padding:6px 8px;font:inherit;border:1px solid #ccc;border-radius:5px}
+  .row .buck{flex:0 0 180px}
+  .row button{flex:0 0 auto;padding:6px 10px;border:1px solid #ccc;border-radius:5px;background:#fff;cursor:pointer}
+  .row button:hover{background:#f4f2ef}
+  .add{margin-top:10px}
+  .actions{margin-top:14px;display:flex;gap:10px}
+  .actions button{padding:8px 16px;border-radius:6px;border:none;background:#c65f37;color:#fff;font:inherit;cursor:pointer}
+  .actions button.ghost{background:#fff;border:1px solid #ccc;color:#333}
+  .hint{color:#888;font-size:12px;margin-top:8px}
+  .msg{color:#2e7d32;font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<h1>Bucket Editor</h1>
+<p class="hint">Each rule maps a window-title pattern (case-insensitive, substring) to a bucket. First match wins. Changes apply to the live watcher immediately.</p>
+<div id="rows"></div>
+<button class="add" onclick="addRow()">+ Add rule</button>
+<div class="actions">
+  <button onclick="save()">Save</button>
+  <button class="ghost" onclick="load()">Discard changes</button>
+</div>
+<div class="msg" id="msg"></div>
+
+<script>
+const API = "/api/buckets";
+function rowHTML(r, i) {
+  return `<div class="row" data-i="${i}">
+    <input class="pat" placeholder="pattern, e.g. Housecall Pro" value="${esc(r.pattern || "")}">
+    <input class="buck" placeholder="bucket" value="${esc(r.bucket || "")}">
+    <button onclick="rmRow(this)">✕</button>
+  </div>`;
+}
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function addRow() {
+  const d = document.createElement("div");
+  d.innerHTML = rowHTML({pattern: "", bucket: ""});
+  document.getElementById("rows").appendChild(d.firstElementChild);
+}
+function rmRow(btn) { btn.closest(".row").remove(); }
+
+async function load() {
+  const r = await fetch(API);
+  const cfg = await r.json();
+  document.getElementById("rows").innerHTML = cfg.rules.map(rowHTML).join("");
+  document.getElementById("msg").textContent = "";
+}
+function collect() {
+  const rules = [...document.querySelectorAll(".row")].map(row => ({
+    pattern: row.querySelector(".pat").value.trim(),
+    bucket: row.querySelector(".buck").value.trim(),
+  })).filter(r => r.pattern && r.bucket);
+  return {rules: rules, default_bucket: "Other"};
+}
+async function save() {
+  const cfg = collect();
+  const r = await fetch(API, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(cfg),
+  });
+  let msg = "Saved — live watcher updated.";
+  if (!r.ok) {
+    try { msg = (await r.json()).error || "Save failed"; }
+    catch (e) { msg = "Save failed"; }
+  }
+  document.getElementById("msg").textContent = msg;
+}
+load();
+</script>
+</body>
+</html>
