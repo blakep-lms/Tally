@@ -4,7 +4,7 @@
 # Downloads Tally to ~/.local/lib/tally, symlinks `tally` onto PATH, runs first-run setup.
 set -euo pipefail
 
-TALLY_REPO="${TALLY_REPO:-https://raw.githubusercontent.com/blakep-lms/tally/main}"
+TALLY_REPO="${TALLY_REPO:-https://raw.githubusercontent.com/blakep-lms/Tally/efc0d2a}"
 INSTALL_DIR="$HOME/.local/lib/tally"
 BIN_DIR="$HOME/.local/bin"
 
