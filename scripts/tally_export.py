@@ -56,6 +56,8 @@ def parse_start(value):
 
 
 def load_buckets(path=BUCKETS_PATH):
+    if not os.path.exists(path):
+        return [], "Other"  # fresh user, no buckets yet — everything is Other
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("rules", []), data.get("default_bucket", "Other")
