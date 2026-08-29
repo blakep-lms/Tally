@@ -16,7 +16,7 @@ AGENTS = [
     HOME / "Library" / "LaunchAgents" / "com.lms.tally-menubar.plist",
     HOME / "Library" / "LaunchAgents" / "com.lms.tally-watch.plist",
 ]
-SCRIPTS = Path("/Users/bpmac2/LMS/scripts")
+SCRIPTS = Path(__file__).resolve().parent
 BUCKET_SRV = SCRIPTS / "bucket_server.py"
 STATUS_FILE = "/tmp/tally-status.json"
 CRON_JOB = "409ef87996f8"  # tally-bucket-suggestions

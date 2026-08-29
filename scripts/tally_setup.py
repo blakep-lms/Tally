@@ -13,9 +13,10 @@ import subprocess
 import sys
 
 CONFIG = os.path.expanduser("~/.tally/buckets.json")
-WATCH = "/Users/bpmac2/LMS/scripts/watch.py"
-MENU = "/Users/bpmac2/LMS/scripts/tally_menu.py"
-VENV_PY = "/Users/bpmac2/.tally/menubar-venv/bin/python3"
+SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+WATCH = os.path.join(SCRIPTS, "watch.py")
+MENU = os.path.join(SCRIPTS, "tally_menu_v2.py")
+VENV_PY = os.path.expanduser("~/.tally/menubar-venv/bin/python3")
 PLIST = os.path.expanduser("~/Library/LaunchAgents/com.lms.tally-menubar.plist")
 
 CLEAR = "\033[2J\033[H"
