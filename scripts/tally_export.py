@@ -97,7 +97,10 @@ def compile_totals(events, rules, default_bucket, day):
 
 
 def read_events(db_path=DB_PATH):
-    uri = "file:" + os.path.abspath(os.path.expanduser(db_path)) + "?mode=ro"
+    db = os.path.abspath(os.path.expanduser(db_path))
+    if not os.path.exists(db):
+        return []  # fresh user, no capture yet — empty is valid, not an error
+    uri = "file:" + db + "?mode=ro"
     con = sqlite3.connect(uri, uri=True)
     try:
         return con.execute("select app, title, start, duration from events").fetchall()

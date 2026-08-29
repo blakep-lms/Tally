@@ -142,6 +142,9 @@ def main():
         return
     cfg = load_json(CONFIG, DEFAULT_CONFIG)
     status = load_json(STATUS, {})
+    if not os.path.exists(DB):
+        print_dashboard(a.day, {}, live_totals(status, a.day), status)
+        return
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     try:
         tracked = aggregate(conn, cfg, a.day)

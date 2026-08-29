@@ -43,6 +43,8 @@ def parse_ts(s: str) -> datetime:
 
 
 def load_events(db: str, days: int) -> list[dict]:
+    if not os.path.exists(db):
+        return []  # fresh user, no capture yet — empty timeline
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     if days > 0:

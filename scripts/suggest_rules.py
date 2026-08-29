@@ -38,6 +38,9 @@ def main() -> None:
     rules = load_rules()
     buckets = sorted({r["bucket"] for r in rules} | {"Other"})
 
+    if not os.path.exists(DB):
+        print("No capture db yet — run `tally timer on` to start collecting.")
+        return
     con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     rows = con.execute(
         "SELECT app, title, SUM(duration) AS secs FROM events GROUP BY app, title"
