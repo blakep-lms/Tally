@@ -29,7 +29,9 @@ import time
 from pathlib import Path
 
 CONFIG = os.path.expanduser("~/.tally/buckets.json")
-SCRIPTS = Path(__file__).resolve().parent
+# Resolve the scripts dir: repo checkout (scripts/), or Homebrew (bin/ -> ../libexec).
+_here = Path(__file__).resolve().parent
+SCRIPTS = _here if (_here / "doctor.py").exists() else (_here.parent / "libexec")
 STATUS = "/tmp/tally-status.json"
 
 
