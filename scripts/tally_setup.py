@@ -104,6 +104,8 @@ def setup_timer() -> None:
             print(f"\n  {DIM}Installing the timer runtime…{RESET}")
             venv_dir = os.path.dirname(os.path.dirname(VENV_PY))  # ~/.tally/menubar-venv
             subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
+            subprocess.run([VENV_PY, "-m", "pip", "install", "--upgrade", "--quiet", "pip"],
+                           check=True)
             subprocess.run([VENV_PY, "-m", "pip", "install", "--quiet", "pyobjc-framework-Cocoa"],
                            check=True)
         # Ensure watcher + menu app run.
