@@ -78,6 +78,9 @@ def cmd_bucket(args):
     elif sub == "add":
         name = args.name
         pats = [p.strip() for p in args.patterns.split(",") if p.strip()]
+        if not pats:
+            print("No patterns provided — bucket not added (need at least one window-title pattern).")
+            return
         for p in pats:
             cfg["rules"].append({"pattern": p, "bucket": name})
         save_cfg(cfg)
