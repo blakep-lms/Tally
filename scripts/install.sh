@@ -13,7 +13,7 @@ mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
 FILES="tally.py watch.py store.py tally_setup.py tally_ctl.py tally_menu_v2.py
        tally_dashboard.py tally_export.py timeline.py suggest_rules.py doctor.py
-       bucket_server.py bucket-editor.html install_menubar.py"
+       bucket_server.py bucket-editor.html"
 
 for f in $FILES; do
   curl -fsSL "$TALLY_REPO/scripts/$f" -o "$INSTALL_DIR/$f"
