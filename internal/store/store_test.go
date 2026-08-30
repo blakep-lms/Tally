@@ -2,6 +2,8 @@ package store
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,6 +19,45 @@ func openTest(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+func TestDatabaseFileIsPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tally.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("database permissions=%#o, want no group/world access", info.Mode().Perm())
+	}
+}
+
+func TestOpenTightensExistingDataDirectoryPermissions(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(filepath.Join(dir, "tally.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("data directory permissions=%#o, want 0700", info.Mode().Perm())
+	}
 }
 
 func TestProjectLifecycle(t *testing.T) {

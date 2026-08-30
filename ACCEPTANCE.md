@@ -13,11 +13,12 @@ From the repository root:
 ```bash
 export TALLY_HOME="$(mktemp -d)/tally"
 go build -o ./dist/tally .
-./dist/tally init
+./dist/tally setup
+./dist/tally doctor
 ./dist/tally status
 ```
 
-`init` must create `$TALLY_HOME/config.toml` with private file permissions. `status` may report ActivityWatch disconnected if it is not running; all non-capture tests remain valid.
+`setup` is an alias for `init`. Both must create `$TALLY_HOME/config.toml` and `tally.db` with private file permissions. `doctor` must pass when ActivityWatch is running; without ActivityWatch, it must fail clearly while all non-capture tests remain valid.
 
 ## 2. Generic work items and lifecycle
 
@@ -54,10 +55,11 @@ auto_sync_interval_seconds = 60
 
 Captured browser URLs must contain only origins by default. They must not contain credentials, query strings, or fragments. Windows from ignored password/secret applications and private/incognito browser windows must not be persisted. LLM classification is disabled by default and is not required for acceptance.
 
-The automated regression suite proves half-open range clipping, real AFK fragments, URL sanitization before persistence, privacy-safe LLM signals, completed-item guards, and audited corrections:
+The automated regression suite proves half-open range clipping, real AFK fragments, URL sanitization before persistence, privacy-safe LLM signals, completed-item guards, audited corrections, and synchronization across ActivityWatch hostname changes:
 
 ```bash
 go test ./internal/capture ./internal/classify ./internal/store -count=1
+go test ./internal/capture -run TestAWPullIncludesAllHostnameWindowBuckets -count=1
 ```
 
 ## 4. Exact reports and optional billing

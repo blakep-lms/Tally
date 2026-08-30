@@ -71,6 +71,7 @@ type awEvent struct {
 	Timestamp time.Time      `json:"timestamp"`
 	Duration  float64        `json:"duration"`
 	Data      map[string]any `json:"data"`
+	BucketID  string         `json:"-"`
 }
 
 func (e awEvent) end() time.Time {
@@ -85,8 +86,9 @@ func (e awEvent) str(key string) string {
 }
 
 type bucket struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Hostname string `json:"hostname"`
 }
 
 func (a *AW) buckets(ctx context.Context) (map[string]bucket, error) {
@@ -103,7 +105,25 @@ func (a *AW) buckets(ctx context.Context) (map[string]bucket, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
+	for id, b := range out {
+		if b.ID == "" {
+			b.ID = id
+			out[id] = b
+		}
+	}
 	return out, nil
+}
+
+func bucketHost(id string, b bucket) string {
+	if b.Hostname != "" {
+		return b.Hostname
+	}
+	for _, prefix := range []string{"aw-watcher-window_", "aw-watcher-afk_"} {
+		if strings.HasPrefix(id, prefix) {
+			return strings.TrimPrefix(id, prefix)
+		}
+	}
+	return ""
 }
 
 func (a *AW) events(ctx context.Context, bucketID string, from, to time.Time) ([]awEvent, error) {
@@ -215,14 +235,13 @@ func (a *AW) Pull(ctx context.Context, from, to time.Time) ([]model.Event, error
 	if err != nil {
 		return nil, err
 	}
-	var windowBucket, afkBucket string
-	var webBuckets []string
+	var windowBuckets, afkBuckets, webBuckets []string
 	for id, b := range bks {
 		switch b.Type {
 		case "currentwindow":
-			windowBucket = id
+			windowBuckets = append(windowBuckets, id)
 		case "afkstatus":
-			afkBucket = id
+			afkBuckets = append(afkBuckets, id)
 		case "web.tab.current":
 			webBuckets = append(webBuckets, id)
 		}
@@ -234,43 +253,63 @@ func (a *AW) Pull(ctx context.Context, from, to time.Time) ([]model.Event, error
 			continue
 		}
 		switch {
-		case windowBucket == "" && strings.HasPrefix(id, "aw-watcher-window"):
-			windowBucket = id
-		case afkBucket == "" && strings.HasPrefix(id, "aw-watcher-afk"):
-			afkBucket = id
+		case strings.HasPrefix(id, "aw-watcher-window"):
+			windowBuckets = append(windowBuckets, id)
+		case strings.HasPrefix(id, "aw-watcher-afk"):
+			afkBuckets = append(afkBuckets, id)
 		case strings.HasPrefix(id, "aw-watcher-web"):
 			webBuckets = append(webBuckets, id)
 		}
 	}
+	sort.Strings(windowBuckets)
+	sort.Strings(afkBuckets)
 	sort.Strings(webBuckets)
-	if windowBucket == "" {
+	if len(windowBuckets) == 0 {
 		return nil, fmt.Errorf("no aw-watcher-window bucket found; is the window watcher running?")
 	}
 
-	windowEvents, err := a.events(ctx, windowBucket, from, to)
-	if err != nil {
-		return nil, err
-	}
-	var afkEvents []awEvent
-	if afkBucket != "" {
-		if afkEvents, err = a.events(ctx, afkBucket, from, to); err != nil {
-			return nil, err
-		}
-	}
-	var webEvents []awEvent
-	for _, wb := range webBuckets {
-		evs, err := a.events(ctx, wb, from, to)
+	var windowEvents []awEvent
+	for _, bucketID := range windowBuckets {
+		events, err := a.events(ctx, bucketID, from, to)
 		if err != nil {
 			return nil, err
 		}
-		webEvents = append(webEvents, evs...)
+		for i := range events {
+			events[i].BucketID = bucketID
+		}
+		windowEvents = append(windowEvents, events...)
 	}
-
-	active := notAFK(afkEvents)
-	haveAFK := len(afkEvents) > 0
-	sort.Slice(webEvents, func(i, j int) bool {
-		return webEvents[i].Timestamp.Before(webEvents[j].Timestamp)
+	afkByHost := make(map[string][]awEvent)
+	for _, bucketID := range afkBuckets {
+		events, err := a.events(ctx, bucketID, from, to)
+		if err != nil {
+			return nil, err
+		}
+		host := bucketHost(bucketID, bks[bucketID])
+		afkByHost[host] = append(afkByHost[host], events...)
+	}
+	webByHost := make(map[string][]awEvent)
+	for _, bucketID := range webBuckets {
+		events, err := a.events(ctx, bucketID, from, to)
+		if err != nil {
+			return nil, err
+		}
+		host := bucketHost(bucketID, bks[bucketID])
+		webByHost[host] = append(webByHost[host], events...)
+	}
+	sort.Slice(windowEvents, func(i, j int) bool {
+		return windowEvents[i].Timestamp.Before(windowEvents[j].Timestamp)
 	})
+	activeByHost := make(map[string][]interval, len(afkByHost))
+	for host, events := range afkByHost {
+		activeByHost[host] = notAFK(events)
+	}
+	for host := range webByHost {
+		events := webByHost[host]
+		sort.Slice(events, func(i, j int) bool {
+			return events[i].Timestamp.Before(events[j].Timestamp)
+		})
+	}
 
 	out := make([]model.Event, 0, len(windowEvents))
 	for _, w := range windowEvents {
@@ -281,7 +320,14 @@ func (a *AW) Pull(ctx context.Context, from, to time.Time) ([]model.Event, error
 		}
 		app := w.str("app")
 		title := w.str("title")
-		group := fmt.Sprintf("aw:%s:%d", windowBucket, w.ID)
+		group := fmt.Sprintf("aw:%s:%d", w.BucketID, w.ID)
+		host := bucketHost(w.BucketID, bks[w.BucketID])
+		active := activeByHost[host]
+		haveAFK := len(afkByHost[host]) > 0
+		webEvents := append([]awEvent(nil), webByHost[host]...)
+		if host != "" {
+			webEvents = append(webEvents, webByHost[""]...)
+		}
 		fragments := activeFragments(clippedStart, clippedEnd, active, haveAFK)
 		if sensitiveWindow(app, title, a.ignoredApps) || len(fragments) == 0 {
 			out = append(out, model.Event{SourceGroup: group, CaptureComplete: true})

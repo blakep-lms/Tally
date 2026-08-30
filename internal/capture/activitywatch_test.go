@@ -196,3 +196,54 @@ func TestBucketDiscoveryUsesDeclaredType(t *testing.T) {
 		t.Fatalf("events=%+v", events)
 	}
 }
+
+func TestAWPullIncludesAllHostnameWindowBuckets(t *testing.T) {
+	base := time.Date(2026, 8, 29, 10, 0, 0, 0, time.UTC)
+	buckets := map[string]bucket{
+		"aw-watcher-window-old.local": {Type: "currentwindow", Hostname: "old.local"},
+		"aw-watcher-window-new.local": {Type: "currentwindow", Hostname: "new.local"},
+		"aw-watcher-afk-new.local":    {Type: "afkstatus", Hostname: "new.local"},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/0/buckets/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/0/buckets/")
+		if path == "" {
+			_ = json.NewEncoder(w).Encode(buckets)
+			return
+		}
+		id := strings.TrimSuffix(path, "/events")
+		if strings.Contains(id, "afk") {
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id": 1, "timestamp": base.Add(time.Minute).Format(time.RFC3339Nano),
+				"duration": 60, "data": map[string]any{"status": "not-afk"},
+			}})
+			return
+		}
+		title := "old event"
+		minute := 0
+		if strings.Contains(id, "new.local") {
+			title = "new event"
+			minute = 1
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{{
+			"id": 1, "timestamp": base.Add(time.Duration(minute) * time.Minute).Format(time.RFC3339Nano),
+			"duration": 60, "data": map[string]any{"app": "Code", "title": title},
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	events, err := NewAW(srv.URL).Pull(context.Background(), base, base.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("want both hostname buckets, got %+v", events)
+	}
+	if events[0].Title != "old event" || events[1].Title != "new event" {
+		t.Fatalf("events not stable across hostname buckets: %+v", events)
+	}
+	if events[0].SourceKey == events[1].SourceKey {
+		t.Fatalf("source keys collided: %q", events[0].SourceKey)
+	}
+}

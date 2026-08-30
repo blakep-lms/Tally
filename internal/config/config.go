@@ -102,6 +102,9 @@ func Save(cfg Config) error {
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return err
 	}
+	if err := os.Chmod(d, 0o700); err != nil {
+		return err
+	}
 	p, err := configPath()
 	if err != nil {
 		return err

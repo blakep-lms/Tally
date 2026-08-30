@@ -21,8 +21,12 @@ type Store struct {
 // any pending migrations. Use ":memory:" for an ephemeral test database.
 func Open(path string) (*Store, error) {
 	if path != ":memory:" {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, err
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("protect data directory: %w", err)
 		}
 	}
 	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
@@ -37,6 +41,12 @@ func Open(path string) (*Store, error) {
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if path != ":memory:" {
+		if err := os.Chmod(path, 0o600); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("protect database: %w", err)
+		}
 	}
 	return s, nil
 }

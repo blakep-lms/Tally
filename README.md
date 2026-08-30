@@ -19,6 +19,12 @@ Work items are `active` or `done`. Completing one stops future assignments and d
 
 Exact captured time is always authoritative. Billing is an optional projection over exact classified intervals.
 
+## Canonical implementation
+
+Tally has one implementation: the Go CLI in this repository. The temporary Python bucket tracker, its PyObjC menu process, curl installer, and separate Homebrew formula are retired. They used a different data model and must not be installed beside this binary.
+
+During private dogfood, build from source and install the single binary locally. No public package, tag, or release is approved yet.
+
 ## Requirements
 
 - Go 1.25 or newer
@@ -33,11 +39,13 @@ ActivityWatch remains the capture authority. Tally does not install keyloggers, 
 git clone https://github.com/blakep-lms/Tally.git
 cd Tally
 go build -o ./dist/tally .
-./dist/tally init
-./dist/tally status
+install -m 755 ./dist/tally ~/.local/bin/tally
+tally setup
+tally doctor
+tally status
 ```
 
-Tally stores its database and configuration under `~/.tally` by default. Set `TALLY_HOME` to use another directory.
+`setup` is a discoverable alias for `init`. `doctor` verifies private file permissions, SQLite integrity, loopback-only dashboard binding, and ActivityWatch connectivity. Tally stores its database and configuration under `~/.tally` by default. Set `TALLY_HOME` to use another directory.
 
 ## Core workflow
 
@@ -269,7 +277,7 @@ The macOS helper is intentionally a private-dogfood convenience rather than a re
 - [CONTRIBUTING.md](CONTRIBUTING.md) covers development contributions.
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) defines community expectations.
 
-Pushing a `v*` tag runs the release workflow and GoReleaser. The repository must first have a `HOMEBREW_TAP_GITHUB_TOKEN` secret with write access to `blakep-lms/homebrew-tap`. During private dogfood, validate artifacts without publishing:
+Release automation exists but is dormant during private dogfood. **Do not push a `v*` tag or publish a package without separate approval.** After approval, a `v*` tag runs GoReleaser and requires `HOMEBREW_TAP_GITHUB_TOKEN` with write access to `blakep-lms/homebrew-tap`. Until then, validate artifacts without publishing:
 
 ```bash
 goreleaser release --snapshot --clean

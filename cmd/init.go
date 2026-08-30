@@ -9,8 +9,9 @@ import (
 
 func initCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "init",
-		Short: "Set up Tally: write config, create the database, check for ActivityWatch",
+		Use:     "init",
+		Aliases: []string{"setup"},
+		Short:   "Set up Tally: write config, create the database, check for ActivityWatch",
 		Long: "Initializes Tally's data directory (~/.tally), writes a default config,\n" +
 			"and verifies whether an ActivityWatch capture provider is reachable.",
 		RunE: func(cmd *cobra.Command, args []string) error {
