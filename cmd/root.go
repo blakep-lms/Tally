@@ -30,17 +30,17 @@ func SetVersion(v string) {
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "tally",
-		Short: "Automatic, local-first time tracking for multi-project builders and their agents.",
-		Long: "Tally passively captures what you focus on, classifies it into projects,\n" +
-			"and reports per-project hours you can trust for billing — no timers, ever.",
+		Short: "Automatic, local-first time tracking across all kinds of work.",
+		Long: "Tally passively captures what you focus on, classifies it into projects, products, goals, and other work,\n" +
+			"then reports exact time with optional billing projections — no timers, ever.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	root.AddCommand(
-		initCmd(), statusCmd(), projectsCmd(), rulesCmd(),
-		classifyCmd(), reportCmd(), syncCmd(), uiCmd(), mcpCmd(),
+		initCmd(), doctorCmd(), statusCmd(), itemsCmd(), projectsCmd(), rulesCmd(),
+		classifyCmd(), reportCmd(), billingCmd(), syncCmd(), uiCmd(), mcpCmd(),
 	)
 	return root
 }

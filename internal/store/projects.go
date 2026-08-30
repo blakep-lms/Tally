@@ -12,68 +12,67 @@ import (
 // ErrNotFound is returned when a lookup by id or name matches nothing.
 var ErrNotFound = errors.New("not found")
 
-// CreateProject inserts a new active project and returns it with its id set.
-func (s *Store) CreateProject(name string, typ model.ProjectType, client string) (model.Project, error) {
+const workItemCols = `id, name, kind, context, description, status, created_at, done_at`
+
+// CreateWorkItem inserts a new active work item.
+func (s *Store) CreateWorkItem(name string, kind model.WorkItemKind, context, description string) (model.WorkItem, error) {
 	if name == "" {
-		return model.Project{}, errors.New("project name is required")
+		return model.WorkItem{}, errors.New("work item name is required")
 	}
-	if !typ.Valid() {
-		return model.Project{}, fmt.Errorf("invalid project type %q", typ)
+	if !kind.Valid() {
+		return model.WorkItem{}, fmt.Errorf("invalid work item kind %q", kind)
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO projects (name, type, client, status) VALUES (?, ?, ?, 'active')`,
-		name, string(typ), client,
+		`INSERT INTO work_items (name, kind, context, description, status) VALUES (?, ?, ?, ?, 'active')`,
+		name, string(kind), context, description,
 	)
 	if err != nil {
-		return model.Project{}, err
+		return model.WorkItem{}, err
 	}
 	id, _ := res.LastInsertId()
-	return s.GetProject(id)
+	return s.GetWorkItem(id)
 }
 
-func scanProject(row interface{ Scan(...any) error }) (model.Project, error) {
-	var p model.Project
-	var typ, status string
+func scanWorkItem(row interface{ Scan(...any) error }) (model.WorkItem, error) {
+	var w model.WorkItem
+	var kind, status string
 	var doneAt sql.NullTime
-	if err := row.Scan(&p.ID, &p.Name, &typ, &p.Client, &status, &p.CreatedAt, &doneAt); err != nil {
-		return model.Project{}, err
+	if err := row.Scan(&w.ID, &w.Name, &kind, &w.Context, &w.Description, &status, &w.CreatedAt, &doneAt); err != nil {
+		return model.WorkItem{}, err
 	}
-	p.Type = model.ProjectType(typ)
-	p.Status = model.ProjectStatus(status)
+	w.Kind = model.WorkItemKind(kind)
+	w.Status = model.WorkItemStatus(status)
 	if doneAt.Valid {
-		p.DoneAt = &doneAt.Time
+		w.DoneAt = &doneAt.Time
 	}
-	return p, nil
+	return w, nil
 }
 
-const projectCols = `id, name, type, client, status, created_at, done_at`
-
-// GetProject fetches a project by id.
-func (s *Store) GetProject(id int64) (model.Project, error) {
-	row := s.db.QueryRow(`SELECT `+projectCols+` FROM projects WHERE id = ?`, id)
-	p, err := scanProject(row)
+func (s *Store) GetWorkItem(id int64) (model.WorkItem, error) {
+	row := s.db.QueryRow(`SELECT `+workItemCols+` FROM work_items WHERE id = ?`, id)
+	w, err := scanWorkItem(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return model.Project{}, ErrNotFound
+		return model.WorkItem{}, ErrNotFound
 	}
-	return p, err
+	return w, err
 }
 
-// GetProjectByName fetches a project by its unique name.
-func (s *Store) GetProjectByName(name string) (model.Project, error) {
-	row := s.db.QueryRow(`SELECT `+projectCols+` FROM projects WHERE name = ?`, name)
-	p, err := scanProject(row)
+func (s *Store) GetWorkItemByName(name string) (model.WorkItem, error) {
+	row := s.db.QueryRow(`SELECT `+workItemCols+` FROM work_items WHERE name = ?`, name)
+	w, err := scanWorkItem(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return model.Project{}, ErrNotFound
+		return model.WorkItem{}, ErrNotFound
 	}
-	return p, err
+	return w, err
 }
 
-// ListProjects returns all projects, optionally filtered by status. Pass an
-// empty status to return every project. Active projects sort before done.
-func (s *Store) ListProjects(status model.ProjectStatus) ([]model.Project, error) {
-	q := `SELECT ` + projectCols + ` FROM projects`
+func (s *Store) ListWorkItems(status model.WorkItemStatus) ([]model.WorkItem, error) {
+	q := `SELECT ` + workItemCols + ` FROM work_items`
 	var args []any
 	if status != "" {
+		if !status.Valid() {
+			return nil, fmt.Errorf("invalid work item status %q", status)
+		}
 		q += ` WHERE status = ?`
 		args = append(args, string(status))
 	}
@@ -83,75 +82,169 @@ func (s *Store) ListProjects(status model.ProjectStatus) ([]model.Project, error
 		return nil, err
 	}
 	defer rows.Close()
-	var out []model.Project
+	var out []model.WorkItem
 	for rows.Next() {
-		p, err := scanProject(rows)
+		w, err := scanWorkItem(rows)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, p)
+		out = append(out, w)
 	}
 	return out, rows.Err()
 }
 
-// UpdateProject writes name, type, and client for an existing project.
+func (s *Store) UpdateWorkItem(id int64, name string, kind model.WorkItemKind, context, description string) (model.WorkItem, error) {
+	if name == "" {
+		return model.WorkItem{}, errors.New("work item name is required")
+	}
+	if !kind.Valid() {
+		return model.WorkItem{}, fmt.Errorf("invalid work item kind %q", kind)
+	}
+	res, err := s.db.Exec(`UPDATE work_items SET name = ?, kind = ?, context = ?, description = ? WHERE id = ?`, name, string(kind), context, description, id)
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.WorkItem{}, ErrNotFound
+	}
+	return s.GetWorkItem(id)
+}
+
+// MarkWorkItemDone is idempotent. All existence checks stay inside tx so stores
+// with MaxOpenConns(1) cannot self-deadlock while a transaction is open.
+func (s *Store) MarkWorkItemDone(id int64) (model.WorkItem, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC()
+	if _, err := tx.Exec(`UPDATE work_items SET status = 'done', done_at = COALESCE(done_at, ?) WHERE id = ? AND status = 'active'`, now, id); err != nil {
+		return model.WorkItem{}, err
+	}
+	if _, err := tx.Exec(`UPDATE rules SET active = 0 WHERE work_item_id = ?`, id); err != nil {
+		return model.WorkItem{}, err
+	}
+	row := tx.QueryRow(`SELECT `+workItemCols+` FROM work_items WHERE id = ?`, id)
+	w, err := scanWorkItem(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.WorkItem{}, ErrNotFound
+	}
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.WorkItem{}, err
+	}
+	return w, nil
+}
+
+func (s *Store) ReactivateWorkItem(id int64) (model.WorkItem, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE work_items SET status = 'active', done_at = NULL WHERE id = ?`, id)
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.WorkItem{}, ErrNotFound
+	}
+	if _, err := tx.Exec(`UPDATE rules SET active = 1 WHERE work_item_id = ?`, id); err != nil {
+		return model.WorkItem{}, err
+	}
+	row := tx.QueryRow(`SELECT `+workItemCols+` FROM work_items WHERE id = ?`, id)
+	w, err := scanWorkItem(row)
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.WorkItem{}, err
+	}
+	return w, nil
+}
+
+// Legacy project wrappers.
+func (s *Store) CreateProject(name string, typ model.ProjectType, client string) (model.Project, error) {
+	if !typ.Valid() {
+		return model.Project{}, fmt.Errorf("invalid project type %q", typ)
+	}
+	w, err := s.CreateWorkItem(name, model.KindProject, client, "")
+	if err != nil {
+		return model.Project{}, err
+	}
+	_, err = s.SetBillingProfile(model.BillingProfile{ScopeType: model.BillingScopeWorkItem, ScopeKey: fmt.Sprint(w.ID), Enabled: typ == model.TypeBillable, Currency: "USD", RoundingMode: model.RoundingUp, RoundingIncrementMinutes: 15, RoundingScope: model.RoundingScopePeriodWorkItem, PeriodMode: model.PeriodCustom, LegacyType: typ})
+	if err != nil {
+		return model.Project{}, err
+	}
+	return model.ProjectFromWorkItem(w, typ), nil
+}
+
+func (s *Store) projectType(id int64) model.ProjectType {
+	var typ string
+	_ = s.db.QueryRow(`SELECT COALESCE(legacy_type, '') FROM billing_profiles WHERE scope_type = 'work_item' AND scope_key = ?`, fmt.Sprint(id)).Scan(&typ)
+	return model.ProjectType(typ)
+}
+
+func (s *Store) GetProject(id int64) (model.Project, error) {
+	w, err := s.GetWorkItem(id)
+	if err != nil {
+		return model.Project{}, err
+	}
+	return model.ProjectFromWorkItem(w, s.projectType(id)), nil
+}
+
+func (s *Store) GetProjectByName(name string) (model.Project, error) {
+	w, err := s.GetWorkItemByName(name)
+	if err != nil {
+		return model.Project{}, err
+	}
+	return model.ProjectFromWorkItem(w, s.projectType(w.ID)), nil
+}
+
+func (s *Store) ListProjects(status model.ProjectStatus) ([]model.Project, error) {
+	items, err := s.ListWorkItems(status)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.Project, 0, len(items))
+	for _, w := range items {
+		if w.Kind == model.KindProject {
+			out = append(out, model.ProjectFromWorkItem(w, s.projectType(w.ID)))
+		}
+	}
+	return out, nil
+}
+
 func (s *Store) UpdateProject(id int64, name string, typ model.ProjectType, client string) (model.Project, error) {
 	if !typ.Valid() {
 		return model.Project{}, fmt.Errorf("invalid project type %q", typ)
 	}
-	res, err := s.db.Exec(
-		`UPDATE projects SET name = ?, type = ?, client = ? WHERE id = ?`,
-		name, string(typ), client, id,
-	)
+	w, err := s.UpdateWorkItem(id, name, model.KindProject, client, "")
 	if err != nil {
 		return model.Project{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return model.Project{}, ErrNotFound
+	_, err = s.SetBillingProfile(model.BillingProfile{ScopeType: model.BillingScopeWorkItem, ScopeKey: fmt.Sprint(id), Enabled: typ == model.TypeBillable, Currency: "USD", RoundingMode: model.RoundingUp, RoundingIncrementMinutes: 15, RoundingScope: model.RoundingScopePeriodWorkItem, PeriodMode: model.PeriodCustom, LegacyType: typ})
+	if err != nil {
+		return model.Project{}, err
 	}
-	return s.GetProject(id)
+	return model.ProjectFromWorkItem(w, typ), nil
 }
 
-// MarkDone archives a project: status becomes done, done_at is stamped, and
-// its rules are deactivated so no new time is attributed to it.
 func (s *Store) MarkDone(id int64) (model.Project, error) {
-	tx, err := s.db.Begin()
+	w, err := s.MarkWorkItemDone(id)
 	if err != nil {
 		return model.Project{}, err
 	}
-	defer tx.Rollback()
-	res, err := tx.Exec(
-		`UPDATE projects SET status = 'done', done_at = ? WHERE id = ? AND status = 'active'`,
-		time.Now().UTC(), id,
-	)
-	if err != nil {
-		return model.Project{}, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		// Either it does not exist or it is already done.
-		if _, err := s.GetProject(id); err != nil {
-			return model.Project{}, err
-		}
-	}
-	if _, err := tx.Exec(`UPDATE rules SET active = 0 WHERE project_id = ?`, id); err != nil {
-		return model.Project{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return model.Project{}, err
-	}
-	return s.GetProject(id)
+	return model.ProjectFromWorkItem(w, s.projectType(id)), nil
 }
 
-// Reactivate flips a done project back to active without re-enabling rules.
 func (s *Store) Reactivate(id int64) (model.Project, error) {
-	res, err := s.db.Exec(
-		`UPDATE projects SET status = 'active', done_at = NULL WHERE id = ?`, id,
-	)
+	w, err := s.ReactivateWorkItem(id)
 	if err != nil {
 		return model.Project{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return model.Project{}, ErrNotFound
-	}
-	return s.GetProject(id)
+	return model.ProjectFromWorkItem(w, s.projectType(id)), nil
 }

@@ -29,7 +29,7 @@ func statusCmd() *cobra.Command {
 				conn = st.Provider + " connected"
 			}
 			fmt.Printf("Capture:       %s\n", conn)
-			fmt.Printf("Projects:      %d active, %d done\n", st.ActiveProjects, st.DoneProjects)
+			fmt.Printf("Work items:    %d active, %d done\n", st.ActiveWorkItems, st.DoneWorkItems)
 			fmt.Printf("Active rules:  %d\n", st.ActiveRules)
 			fmt.Printf("Events:        %d captured\n", st.EventsTotal)
 			fmt.Printf("Today:         %.1f h tracked (%.1f h unclassified)\n", st.TrackedToday, st.UnclassifiedToday)

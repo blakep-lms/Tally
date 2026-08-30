@@ -57,7 +57,7 @@ func runInteractive(cmd *cobra.Command, app *core.App) error {
 	if err != nil {
 		return err
 	}
-	projects, err := app.ListProjects(model.StatusActive)
+	items, err := app.ListWorkItems(model.StatusActive)
 	if err != nil {
 		return err
 	}
@@ -65,15 +65,15 @@ func runInteractive(cmd *cobra.Command, app *core.App) error {
 		fmt.Println("Nothing to triage. 🎉")
 		return nil
 	}
-	if len(projects) == 0 {
-		return fmt.Errorf("no active projects to assign to; create one first")
+	if len(items) == 0 {
+		return fmt.Errorf("no active work items to assign to; create one first")
 	}
 
-	fmt.Println("Projects:")
-	for _, p := range projects {
-		fmt.Printf("  %d) %s (%s)\n", p.ID, p.Name, p.Type)
+	fmt.Println("Work items:")
+	for _, item := range items {
+		fmt.Printf("  %d) %s (%s)\n", item.ID, item.Name, item.Kind)
 	}
-	fmt.Println("For each event: enter a project id, `r <id>` to also make a rule, or Enter to skip. `q` quits.")
+	fmt.Println("For each event: enter a work item ID, `r <id>` to also make a rule, or Enter to skip. `q` quits.")
 	reader := bufio.NewReader(os.Stdin)
 
 	for _, e := range events {
